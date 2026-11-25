@@ -14,6 +14,7 @@ export function TypingStage() {
   const [focused, setFocused] = useState(true);
 
   const layout = useTypingStore((s) => s.layout);
+  const practiceMode = useTypingStore((s) => s.practiceMode);
   const uiLang = useTypingStore((s) => s.uiLang);
   const graphemes = useTypingStore((s) => s.graphemes);
   const statuses = useTypingStore((s) => s.statuses);
@@ -24,10 +25,11 @@ export function TypingStage() {
   const pendingImePreview = useTypingStore((s) => s.pendingImePreview);
   const isReady = useTypingStore((s) => s.isReady);
   const examSummary = useTypingStore((s) => s.examSummary);
+  const lessonCompletion = useTypingStore((s) => s.lessonCompletion);
   const errorMessage = useTypingStore((s) => s.errorMessage);
   const enqueueKeyInput = useTypingStore((s) => s.enqueueKeyInput);
   const setModifiers = useTypingStore((s) => s.setModifiers);
-  const initSession = useTypingStore((s) => s.initSession);
+  const restartActiveLesson = useTypingStore((s) => s.restartActiveLesson);
 
   const t = getDictionary(uiLang);
   const isHindi = layout !== "en_qwerty";
@@ -78,7 +80,7 @@ export function TypingStage() {
     if (e.code === "Enter" && tabArmedRef.current) {
       e.preventDefault();
       tabArmedRef.current = false;
-      void initSession();
+      void restartActiveLesson();
       return;
     }
     tabArmedRef.current = false;
@@ -97,7 +99,7 @@ export function TypingStage() {
       return;
     }
 
-    if (!isReady || examSummary) return;
+    if (!isReady || examSummary || lessonCompletion || practiceMode === "mini_game") return;
     e.preventDefault();
 
     void enqueueKeyInput({
@@ -126,7 +128,7 @@ export function TypingStage() {
       onBlur={() => setFocused(false)}
       onClick={() => stageRef.current?.focus()}
       className={cn(
-        "relative min-h-[190px] w-full rounded-2xl border bg-card px-6 py-7 shadow-sm transition-all outline-none cursor-text",
+        "relative min-h-[190px] w-full rounded-2xl border bg-card px-6 py-7 shadow-sm transition-all cursor-text focus-visible:ring-2 focus-visible:ring-primary",
         focused ? "border-primary/50 ring-2 ring-primary/15" : "border-border",
       )}
     >

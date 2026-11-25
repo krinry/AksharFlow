@@ -1,4 +1,18 @@
-import { BarChart3, Clock, Globe, Keyboard, Maximize2, Minimize2, Moon, SlidersHorizontal, Sun, Volume2, VolumeX } from "lucide-react";
+import {
+  BarChart3,
+  Clock,
+  Compass,
+  Globe,
+  Keyboard,
+  Maximize2,
+  Minimize2,
+  Moon,
+  SlidersHorizontal,
+  Sparkles,
+  Sun,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LayoutKind } from "@/lib/bindings";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -29,8 +43,8 @@ export function TopBar() {
   if (zenMode && activeTab !== "analytics") {
     return (
       <header className="flex items-center justify-end px-6 pt-4">
-        <Button variant="ghost" size="sm" onClick={toggleZenMode}>
-          <Minimize2 className="h-3.5 w-3.5" />
+        <Button type="button" variant="ghost" size="sm" onClick={toggleZenMode}>
+          <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
           {t.typing.exitZen}
         </Button>
       </header>
@@ -38,9 +52,10 @@ export function TopBar() {
   }
 
   const navItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
-    { id: "practice", label: t.nav.practice, icon: <Keyboard className="h-3.5 w-3.5" /> },
-    { id: "exam", label: t.nav.exam, icon: <Clock className="h-3.5 w-3.5" /> },
-    { id: "analytics", label: t.nav.analytics, icon: <BarChart3 className="h-3.5 w-3.5" /> },
+    { id: "jungle", label: t.nav.jungle, icon: <Compass className="h-3.5 w-3.5" aria-hidden="true" /> },
+    { id: "adaptive", label: t.nav.adaptive, icon: <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> },
+    { id: "exam", label: t.nav.exam, icon: <Clock className="h-3.5 w-3.5" aria-hidden="true" /> },
+    { id: "analytics", label: t.nav.analytics, icon: <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" /> },
   ];
 
   return (
@@ -59,16 +74,17 @@ export function TopBar() {
       </div>
 
       {/* Mode Navigation Tabs */}
-      <nav className="flex items-center rounded-xl border border-border bg-muted/60 p-1">
+      <nav aria-label="Workspace modes" className="flex flex-wrap items-center rounded-xl border border-border bg-muted/60 p-1">
         {navItems.map((item) => {
           const active = activeTab === item.id;
           return (
             <button
               key={item.id}
               type="button"
+              aria-current={active ? "page" : undefined}
               onClick={() => void setActiveTab(item.id)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+                "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
                 active
                   ? "bg-card text-primary shadow-xs ring-1 ring-border/70"
                   : "text-muted-foreground hover:text-foreground",
@@ -126,36 +142,46 @@ export function TopBar() {
         </div>
 
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={() => setUiLang(uiLang === "en" ? "hi" : "en")}
+          aria-label="Switch UI Language"
           title="Switch UI Language"
         >
-          <Globe className="h-3.5 w-3.5" />
+          <Globe className="h-3.5 w-3.5" aria-hidden="true" />
           {uiLang === "en" ? "हिं" : "EN"}
         </Button>
 
         <Button
+          type="button"
           variant="outline"
           size="icon"
           onClick={toggleTheme}
+          aria-label={theme === "dark" ? t.theme.light : t.theme.dark}
           title={theme === "dark" ? t.theme.light : t.theme.dark}
         >
-          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Moon className="h-4 w-4" aria-hidden="true" />
+          )}
         </Button>
 
         <Button
+          type="button"
           variant="outline"
           size="icon"
           onClick={() => setSettingsModalOpen(true)}
+          aria-label={t.settings.title}
           title={t.settings.title}
         >
-          <SlidersHorizontal className="h-4 w-4" />
+          <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
         </Button>
 
         {activeTab !== "analytics" && (
-          <Button variant="outline" size="sm" onClick={toggleZenMode}>
-            <Maximize2 className="h-3.5 w-3.5" />
+          <Button type="button" variant="outline" size="sm" onClick={toggleZenMode}>
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
             {t.typing.zenMode}
           </Button>
         )}

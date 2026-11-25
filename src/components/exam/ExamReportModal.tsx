@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Award, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -12,25 +13,50 @@ export function ExamReportModal() {
 
   const t = getDictionary(uiLang);
 
+  useEffect(() => {
+    if (!examSummary) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissExamSummary();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [examSummary, dismissExamSummary]);
+
   if (!examSummary) return null;
 
   const m = examSummary.metrics;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="exam-report-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-xs"
+    >
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
-              <Award className="h-5 w-5" />
+              <Award className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-bold">{t.exam.reportTitle}</h2>
+              <h2 id="exam-report-title" className="text-base font-bold">
+                {t.exam.reportTitle}
+              </h2>
               <p className="text-xs text-muted-foreground">{t.layouts[examSummary.layout]}</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={dismissExamSummary}>
-            <X className="h-4 w-4" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t.settings.close}
+            onClick={dismissExamSummary}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
 
@@ -51,11 +77,12 @@ export function ExamReportModal() {
 
         <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={() => {
               dismissExamSummary();
-              void setActiveTab("practice");
+              void setActiveTab("adaptive");
             }}
           >
             {t.exam.backToPractice}

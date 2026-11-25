@@ -1,5 +1,6 @@
 pub mod adaptive;
 pub mod corpus;
+pub mod curriculum;
 pub mod error;
 pub mod grapheme;
 pub mod keymap;
@@ -20,6 +21,10 @@ mod tests {
         required_keys_for_word, unlock_sequence,
     };
     use crate::corpus::Corpus;
+    use crate::curriculum::{
+        LessonKind, LessonProgressRecord, TOTAL_LESSONS_PER_LAYOUT, UNITS_PER_LAYOUT,
+        calculate_lesson_stars, generate_all_lessons,
+    };
     use crate::grapheme::{GraphemeStatus, split_graphemes};
     use crate::keymap::remington_gail::RemingtonIme;
     use crate::keymap::{KeyInputEvent, LayoutKind, MappedKeyAction, PhysicalKey, qwerty};
@@ -399,5 +404,128 @@ mod tests {
         assert_eq!(words.len(), 18);
         let k_count = words.iter().filter(|w| w.contains('k')).count();
         assert!(k_count >= 12, "expected heavy 'k' drill ratio, got {k_count}");
+    }
+
+    #[test]
+    fn curriculum_generates_700_valid_lessons_for_all_layouts() {
+        let corpus = Corpus::load_embedded().unwrap();
+        for layout in [
+            LayoutKind::EnQwerty,
+            LayoutKind::HiInscript,
+            LayoutKind::HiRemingtonGail,
+        ] {
+            let lessons = generate_all_lessons(layout, &corpus);
+            assert_eq!(lessons.len(), TOTAL_LESSONS_PER_LAYOUT as usize);
+            assert_eq!(lessons.len(), 700);
+
+            let mut review_units = HashSet::new();
+            let mut mini_game_count = 0u32;
+            for lesson in &lessons {
+                assert!(!lesson.words.is_empty(), "empty words in {}", lesson.id);
+                let joined = lesson.words.join(" ");
+                assert!(!split_graphemes(&joined).is_empty());
+                if lesson.global_number % 10 == 0 {
+                    assert_eq!(lesson.kind, LessonKind::MiniGame);
+                    mini_game_count += 1;
+                }
+                if lesson.kind == LessonKind::ReviewChallenge {
+                    review_units.insert(lesson.unit_number);
+                }
+            }
+            assert_eq!(mini_game_count, 70);
+            assert_eq!(review_units.len(), UNITS_PER_LAYOUT as usize);
+        }
+    }
+
+    #[test]
+    fn lesson_5_star_scoring_and_roadmap_unlock() {
+        assert_eq!(calculate_lesson_stars(50.0, 99.0, 25.0, 90.0), 5);
+        assert_eq!(calculate_lesson_stars(32.0, 93.0, 25.0, 90.0), 4);
+        assert_eq!(calculate_lesson_stars(25.0, 90.0, 25.0, 90.0), 3);
+        assert_eq!(calculate_lesson_stars(18.0, 90.0, 25.0, 90.0), 2);
+        assert_eq!(calculate_lesson_stars(10.0, 86.0, 25.0, 90.0), 1);
+        assert_eq!(calculate_lesson_stars(30.0, 70.0, 25.0, 90.0), 0);
+
+        let mut engine = SessionEngine::new().unwrap();
+        let map_initial = engine.get_jungle_roadmap(LayoutKind::EnQwerty).unwrap();
+        assert_eq!(map_initial.total_lessons, 700);
+        assert_eq!(map_initial.total_max_stars, 3500);
+        assert!(map_initial.units[0].lessons[0].unlocked);
+        assert!(!map_initial.units[0].lessons[1].unlocked);
+
+        // Complete u01-l01 with >= 3 stars and verify u01-l02 unlocks while adaptive stats stay clean
+        engine
+            .start_jungle_lesson(LayoutKind::EnQwerty, "u01-l01")
+            .unwrap();
+        let res = engine
+            .complete_jungle_lesson(Some(35.0), Some(99.0), Some(0), Some(40))
+            .unwrap();
+        assert_eq!(res.stars_earned, 5);
+        assert!(res.next_lesson_unlocked);
+        assert_eq!(res.next_lesson_id.as_deref(), Some("u01-l02"));
+
+        let map_after = engine.get_jungle_roadmap(LayoutKind::EnQwerty).unwrap();
+        assert!(map_after.units[0].lessons[1].unlocked);
+        assert_eq!(map_after.total_earned_stars, 5);
+        assert_eq!(engine.key_stats().iter().map(|k| k.hits + k.misses).sum::<u32>(), 0);
+    }
+
+    #[test]
+    fn mini_game_ime_pipeline_handles_remington_and_space_flush() {
+        let mut engine = SessionEngine::new().unwrap();
+        engine
+            .start_jungle_lesson(LayoutKind::HiRemingtonGail, "u01-l10")
+            .unwrap();
+
+        let candidates = vec!["कि".to_string(), "कर".to_string()];
+        // Press dangling `f` (`ि`), which locks onto "कि", then Space flushes pending_short_i!
+        let r1 = engine
+            .resolve_game_keystroke(&key_evt("KeyF", false, false, 100.0), candidates.clone())
+            .unwrap();
+        assert_eq!(r1.locked_word.as_deref(), Some("कि"));
+        assert_eq!(r1.pending_ime_preview.as_deref(), Some("ि"));
+
+        let r_space = engine
+            .resolve_game_keystroke(&key_evt("Space", false, false, 150.0), candidates.clone())
+            .unwrap();
+        assert_eq!(r_space.locked_word, None);
+        assert_eq!(r_space.pending_ime_preview, None);
+
+        // Now complete "कि" cleanly via f + d (with CapsLock ON ignored by Hindi safeguard!)
+        let r2 = engine
+            .resolve_game_keystroke(&key_evt("KeyF", false, true, 250.0), candidates.clone())
+            .unwrap();
+        assert_eq!(r2.locked_word.as_deref(), Some("कि"));
+        let r3 = engine
+            .resolve_game_keystroke(&key_evt("KeyD", false, true, 350.0), candidates)
+            .unwrap();
+        assert!(r3.popped);
+        assert_eq!(r3.locked_word.as_deref(), Some("कि"));
+    }
+
+    #[test]
+    fn backup_bundle_preserves_lesson_progress_and_v1_compat() {
+        let mut storage = SqliteStorage::open_in_memory().unwrap();
+        storage
+            .upsert_lesson_progress(&LessonProgressRecord {
+                layout: LayoutKind::HiInscript,
+                lesson_id: "u01-l01".to_string(),
+                stars: 4,
+                best_wpm: 28.5,
+                best_accuracy: 96.0,
+                completed: true,
+                attempts: 2,
+                updated_at: "2026-11-25T16:45:00Z".to_string(),
+            })
+            .unwrap();
+
+        let bundle = storage.export_backup().unwrap();
+        assert_eq!(bundle.lesson_progress.len(), 1);
+
+        let mut fresh = SqliteStorage::open_in_memory().unwrap();
+        fresh.import_backup(&bundle, true).unwrap();
+        let restored = fresh.load_lesson_progress(LayoutKind::HiInscript).unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].stars, 4);
     }
 }

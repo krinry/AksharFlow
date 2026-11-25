@@ -4,6 +4,7 @@ use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use crate::curriculum::LessonProgressRecord;
 use crate::error::AksharError;
 use crate::keymap::LayoutKind;
 
@@ -102,6 +103,8 @@ pub struct BackupBundleV1 {
     pub key_stats: Vec<KeyStatRecord>,
     pub typing_sessions: Vec<SessionRecord>,
     pub custom_passages: Vec<CustomPassage>,
+    #[serde(default)]
+    pub lesson_progress: Vec<LessonProgressRecord>,
 }
 
 /// Embedded SQLite storage repository using WAL mode for fast offline writes.
@@ -206,6 +209,22 @@ impl SqliteStorage {
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS lesson_progress (
+                layout TEXT NOT NULL,
+                lesson_id TEXT NOT NULL,
+                stars INTEGER NOT NULL DEFAULT 0,
+                best_wpm REAL NOT NULL DEFAULT 0.0,
+                best_accuracy REAL NOT NULL DEFAULT 0.0,
+                completed INTEGER NOT NULL DEFAULT 0,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                sync_dirty INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (layout, lesson_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_lesson_progress_layout
+                ON lesson_progress (layout, completed);
             ",
         )?;
         Ok(())
@@ -439,7 +458,54 @@ impl SqliteStorage {
         Ok(out)
     }
 
-    /// Exports all user settings, per-key stats, session history, and custom passages as `BackupBundleV1`.
+    pub fn load_lesson_progress(
+        &self,
+        layout: LayoutKind,
+    ) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT layout, lesson_id, stars, best_wpm, best_accuracy, completed, attempts, updated_at
+             FROM lesson_progress
+             WHERE layout = ?1
+             ORDER BY lesson_id ASC",
+        )?;
+        let rows = stmt.query_map([layout.to_string()], map_lesson_progress_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn load_all_lesson_progress(&self) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT layout, lesson_id, stars, best_wpm, best_accuracy, completed, attempts, updated_at
+             FROM lesson_progress
+             ORDER BY layout ASC, lesson_id ASC",
+        )?;
+        let rows = stmt.query_map([], map_lesson_progress_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn upsert_lesson_progress(&mut self, rec: &LessonProgressRecord) -> Result<(), AksharError> {
+        let tx = self.conn.transaction()?;
+        upsert_lesson_progress_tx(&tx, std::slice::from_ref(rec))?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_lesson_progress_for_layout(&self, layout: LayoutKind) -> Result<(), AksharError> {
+        self.conn.execute(
+            "DELETE FROM lesson_progress WHERE layout = ?1",
+            [layout.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Exports all user settings, per-key stats, session history, custom passages, and lesson progress.
     pub fn export_backup(&self) -> Result<BackupBundleV1, AksharError> {
         Ok(BackupBundleV1 {
             schema_version: BACKUP_SCHEMA_VERSION,
@@ -449,6 +515,7 @@ impl SqliteStorage {
             key_stats: self.load_all_key_stats()?,
             typing_sessions: self.list_typing_sessions(None, 500)?,
             custom_passages: self.list_custom_passages()?,
+            lesson_progress: self.load_all_lesson_progress()?,
         })
     }
 
@@ -486,6 +553,7 @@ impl SqliteStorage {
             tx.execute("DELETE FROM key_stats", [])?;
             tx.execute("DELETE FROM typing_sessions", [])?;
             tx.execute("DELETE FROM custom_passages", [])?;
+            tx.execute("DELETE FROM lesson_progress", [])?;
         }
 
         tx.execute(
@@ -599,9 +667,92 @@ impl SqliteStorage {
             )?;
         }
 
+        if replace {
+            upsert_lesson_progress_tx(&tx, &bundle.lesson_progress)?;
+        } else {
+            for lp in &bundle.lesson_progress {
+                let existing: Option<(u32, f64, f64, bool, u32)> = tx
+                    .query_row(
+                        "SELECT stars, best_wpm, best_accuracy, completed, attempts
+                         FROM lesson_progress WHERE layout = ?1 AND lesson_id = ?2",
+                        params![lp.layout.to_string(), lp.lesson_id],
+                        |row| {
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get::<_, i64>(3)? != 0,
+                                row.get(4)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+
+                let merged = if let Some((old_s, old_w, old_a, old_c, old_att)) = existing {
+                    LessonProgressRecord {
+                        stars: old_s.max(lp.stars).min(5),
+                        best_wpm: old_w.max(lp.best_wpm),
+                        best_accuracy: old_a.max(lp.best_accuracy),
+                        completed: old_c || lp.completed,
+                        attempts: old_att.max(lp.attempts),
+                        ..lp.clone()
+                    }
+                } else {
+                    lp.clone()
+                };
+                upsert_lesson_progress_tx(&tx, &[merged])?;
+            }
+        }
+
         tx.commit()?;
         Ok(())
     }
+}
+
+fn upsert_lesson_progress_tx(
+    tx: &rusqlite::Transaction<'_>,
+    records: &[LessonProgressRecord],
+) -> Result<(), AksharError> {
+    let mut stmt = tx.prepare(
+        "INSERT INTO lesson_progress (
+            layout, lesson_id, stars, best_wpm, best_accuracy, completed, attempts, updated_at, sync_dirty
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
+         ON CONFLICT(layout, lesson_id) DO UPDATE SET
+            stars = excluded.stars,
+            best_wpm = excluded.best_wpm,
+            best_accuracy = excluded.best_accuracy,
+            completed = excluded.completed,
+            attempts = excluded.attempts,
+            updated_at = excluded.updated_at,
+            sync_dirty = 1",
+    )?;
+    for r in records {
+        stmt.execute(params![
+            r.layout.to_string(),
+            r.lesson_id,
+            r.stars.min(5),
+            r.best_wpm.max(0.0),
+            r.best_accuracy.clamp(0.0, 100.0),
+            if r.completed { 1 } else { 0 },
+            r.attempts,
+            r.updated_at,
+        ])?;
+    }
+    Ok(())
+}
+
+fn map_lesson_progress_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LessonProgressRecord> {
+    let layout_str: String = row.get(0)?;
+    Ok(LessonProgressRecord {
+        layout: parse_layout(&layout_str).unwrap_or(LayoutKind::EnQwerty),
+        lesson_id: row.get(1)?,
+        stars: row.get(2)?,
+        best_wpm: row.get(3)?,
+        best_accuracy: row.get(4)?,
+        completed: row.get::<_, i64>(5)? != 0,
+        attempts: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
 }
 
 fn upsert_key_stats_tx(

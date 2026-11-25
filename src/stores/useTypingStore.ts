@@ -2,16 +2,20 @@ import { create } from "zustand";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   commands,
+  type ActiveLessonMeta,
   type AnalyticsSnapshot_Serialize,
   type AppSettings,
   type BootstrapSnapshot_Serialize,
   type ExamPassage_Serialize,
+  type GameKeyResult_Serialize,
   type GraphemeStatus,
+  type JungleRoadmapSnapshot,
   type KeyEventDelta_Serialize,
   type KeyInputEvent,
   type KeyStatRecord_Serialize,
   type KeycapDescriptor_Serialize,
   type LayoutKind,
+  type LessonCompletionResult_Serialize,
   type LiveMetrics,
   type NextKeyHint,
   type PracticeMode,
@@ -24,7 +28,7 @@ import { soundEngine, type SoundProfile } from "@/audio/soundEngine";
 import type { UiLanguage } from "@/i18n/useTranslation";
 
 export type ThemeMode = "dark" | "light";
-export type NavTab = "practice" | "exam" | "analytics";
+export type NavTab = "jungle" | "adaptive" | "exam" | "analytics";
 
 const INITIAL_METRICS: LiveMetrics = {
   gross_wpm: 0,
@@ -94,6 +98,14 @@ export interface TypingState {
   examTimerRunning: boolean;
   examSummary: SessionSummary | null;
 
+  // Jungle Journey & Mini-Game
+  jungleRoadmap: JungleRoadmapSnapshot | null;
+  roadmapLoading: boolean;
+  roadmapError: string | null;
+  activeLessonMeta: ActiveLessonMeta | null;
+  miniGameWords: string[];
+  lessonCompletion: LessonCompletionResult_Serialize | null;
+
   // Analytics
   analytics: AnalyticsSnapshot_Serialize | null;
   analyticsLoading: boolean;
@@ -117,6 +129,23 @@ export interface TypingState {
   importProgressBackup: (replace: boolean) => Promise<boolean>;
   resetCurrentLayout: () => Promise<void>;
   dismissUnlockToast: () => void;
+
+  // Jungle Journey actions
+  loadJungleRoadmap: (layout?: LayoutKind) => Promise<void>;
+  startJungleLesson: (lessonId: string) => Promise<void>;
+  restartActiveLesson: () => Promise<void>;
+  exitActiveLessonToMap: () => void;
+  completeJungleLesson: (overrideStats?: {
+    netWpm?: number | null;
+    accuracy?: number | null;
+    errors?: number | null;
+    keystrokes?: number | null;
+  }) => Promise<void>;
+  dismissLessonCompletion: () => void;
+  resolveGameKeystroke: (
+    event: KeyInputEvent,
+    candidateWords: string[],
+  ) => Promise<GameKeyResult_Serialize | null>;
 
   // Exam & Drill actions
   loadExamPassages: () => Promise<void>;
@@ -168,7 +197,7 @@ function defaultPassageForLayout(
 }
 
 export const useTypingStore = create<TypingState>((set, get) => ({
-  activeTab: "practice",
+  activeTab: "adaptive",
   layout: "en_qwerty",
   practiceMode: "adaptive",
   uiLang: "en",
@@ -210,6 +239,13 @@ export const useTypingStore = create<TypingState>((set, get) => ({
   examTimerRunning: false,
   examSummary: null,
 
+  jungleRoadmap: null,
+  roadmapLoading: false,
+  roadmapError: null,
+  activeLessonMeta: null,
+  miniGameWords: [],
+  lessonCompletion: null,
+
   analytics: null,
   analyticsLoading: false,
 
@@ -220,7 +256,7 @@ export const useTypingStore = create<TypingState>((set, get) => ({
     if (!isTauriRuntime()) {
       set({
         isReady: false,
-        errorMessage: "Tauri IPC unavailable — launch with `pnpm tauri dev`.",
+        errorMessage: "Tauri IPC unavailable: launch with pnpm tauri dev.",
       });
       return;
     }
@@ -245,14 +281,14 @@ export const useTypingStore = create<TypingState>((set, get) => ({
     if (!isTauriRuntime()) {
       set({
         isReady: false,
-        errorMessage: "Tauri IPC unavailable — launch with `pnpm tauri dev`.",
+        errorMessage: "Tauri IPC unavailable: launch with pnpm tauri dev.",
       });
       return;
     }
     try {
       const boot = await commands.startSession(targetLayout, 18);
       get().applyBootstrap(boot);
-      set({ examTimerRunning: false, examSummary: null });
+      set({ examTimerRunning: false, examSummary: null, lessonCompletion: null });
     } catch (err) {
       set({ errorMessage: String(err), isReady: false });
     }
@@ -260,23 +296,43 @@ export const useTypingStore = create<TypingState>((set, get) => ({
 
   setActiveTab: async (tab) => {
     const prevTab = get().activeTab;
-    set({ activeTab: tab });
+    const prevMode = get().practiceMode;
+    set({ activeTab: tab, lessonCompletion: null });
+
     if (tab === "analytics") {
       await get().refreshAnalytics();
     } else if (tab === "exam") {
+      set({ activeLessonMeta: null, miniGameWords: [] });
       await get().loadExamPassages();
       if (get().practiceMode !== "exam") {
         await get().startExamWithSelected();
       }
-    } else if (tab === "practice" && prevTab === "exam") {
-      set({ examTimerRunning: false, examSummary: null });
-      await get().initSession(get().layout);
+    } else if (tab === "jungle") {
+      set({
+        examTimerRunning: false,
+        examSummary: null,
+        ...(prevTab === "jungle" ? { activeLessonMeta: null, miniGameWords: [] } : {}),
+      });
+      if (!get().jungleRoadmap || prevTab === "jungle" || get().activeLessonMeta === null) {
+        await get().loadJungleRoadmap();
+      }
+    } else if (tab === "adaptive") {
+      set({
+        examTimerRunning: false,
+        examSummary: null,
+        activeLessonMeta: null,
+        miniGameWords: [],
+      });
+      if (prevMode !== "adaptive" && prevMode !== "weak_drill") {
+        await get().initSession(get().layout);
+      }
     }
   },
 
   setLayout: async (layout) => {
     const passages = get().examPassages;
     const preferred = defaultPassageForLayout(passages, layout);
+    const activeTab = get().activeTab;
     set({
       layout,
       touchShift: false,
@@ -285,13 +341,18 @@ export const useTypingStore = create<TypingState>((set, get) => ({
       selectedPassageId: preferred?.id ?? get().selectedPassageId,
       examTimerRunning: false,
       examSummary: null,
+      activeLessonMeta: null,
+      miniGameWords: [],
+      lessonCompletion: null,
     });
-    if (get().activeTab === "exam") {
+    if (activeTab === "exam") {
       await get().startExamWithSelected(preferred?.content);
+    } else if (activeTab === "jungle") {
+      await get().loadJungleRoadmap(layout);
     } else {
       await get().initSession(layout);
     }
-    if (get().activeTab === "analytics") {
+    if (activeTab === "analytics") {
       await get().refreshAnalytics();
     }
   },
@@ -466,7 +527,109 @@ export const useTypingStore = create<TypingState>((set, get) => ({
     if (!isTauriRuntime()) return;
     const boot = await commands.startWeakKeyDrill(get().layout, focusKeys, 18);
     get().applyBootstrap(boot);
-    set({ activeTab: "practice", examTimerRunning: false, examSummary: null });
+    set({
+      activeTab: "adaptive",
+      examTimerRunning: false,
+      examSummary: null,
+      activeLessonMeta: null,
+      miniGameWords: [],
+      lessonCompletion: null,
+    });
+  },
+
+  loadJungleRoadmap: async (overrideLayout) => {
+    const targetLayout = overrideLayout ?? get().layout;
+    if (!isTauriRuntime()) {
+      set({
+        roadmapLoading: false,
+        roadmapError: "Tauri IPC unavailable: launch with pnpm tauri dev.",
+      });
+      return;
+    }
+    set({ roadmapLoading: true, roadmapError: null });
+    try {
+      const jungleRoadmap = await commands.getJungleRoadmap(targetLayout);
+      set({ jungleRoadmap, roadmapLoading: false, roadmapError: null });
+    } catch (err) {
+      set({ roadmapLoading: false, roadmapError: String(err) });
+    }
+  },
+
+  startJungleLesson: async (lessonId) => {
+    if (!isTauriRuntime()) return;
+    set({
+      examTimerRunning: false,
+      examSummary: null,
+      lessonCompletion: null,
+      errorMessage: null,
+    });
+    try {
+      const snap = await commands.startJungleLesson(get().layout, lessonId);
+      set({ activeTab: "jungle" });
+      get().applySnapshot(snap);
+    } catch (err) {
+      set({ errorMessage: String(err) });
+    }
+  },
+
+  restartActiveLesson: async () => {
+    const meta = get().activeLessonMeta;
+    if (meta) {
+      await get().startJungleLesson(meta.id);
+    } else {
+      await get().initSession();
+    }
+  },
+
+  exitActiveLessonToMap: () => {
+    set({
+      activeTab: "jungle",
+      activeLessonMeta: null,
+      miniGameWords: [],
+      lessonCompletion: null,
+      practiceMode: "adaptive",
+    });
+    void get().loadJungleRoadmap();
+  },
+
+  completeJungleLesson: async (overrideStats) => {
+    if (!isTauriRuntime()) return;
+    try {
+      const result = await commands.completeJungleLesson(
+        overrideStats?.netWpm ?? null,
+        overrideStats?.accuracy ?? null,
+        overrideStats?.errors ?? null,
+        overrideStats?.keystrokes ?? null,
+      );
+      set({ lessonCompletion: result });
+      void get().loadJungleRoadmap();
+    } catch (err) {
+      set({ errorMessage: String(err) });
+    }
+  },
+
+  dismissLessonCompletion: () => set({ lessonCompletion: null }),
+
+  resolveGameKeystroke: (event, candidateWords) => {
+    let result: GameKeyResult_Serialize | null = null;
+    const run = async () => {
+      try {
+        const res = await commands.resolveGameKeystroke(event, candidateWords);
+        result = res;
+        const state = get();
+        soundEngine.play(res.sound_kind, state.soundProfile, state.soundVolume);
+        set({
+          metrics: res.metrics,
+          pendingImePreview: res.pending_ime_preview,
+          errorMessage: null,
+        });
+      } catch (err) {
+        set({ errorMessage: String(err) });
+      }
+    };
+    const next = keyQueueTail.then(run, run);
+    keyQueueTail = next;
+    return next.then(() => result);
   },
 
   refreshAnalytics: async () => {
@@ -511,6 +674,8 @@ export const useTypingStore = create<TypingState>((set, get) => ({
       sessionId: snap.session_id,
       layout: snap.layout,
       practiceMode: snap.mode,
+      activeLessonMeta: snap.lesson_meta ?? null,
+      miniGameWords: snap.words ?? [],
       lineIndex: snap.line_index,
       graphemes: snap.graphemes,
       statuses: snap.graphemes.map(() => "pending"),
@@ -541,6 +706,13 @@ export const useTypingStore = create<TypingState>((set, get) => ({
       state.examRemainingSecs > 0 &&
       delta.metrics.keystrokes > 0 &&
       !state.examSummary;
+
+    const shouldFinishJungle =
+      state.practiceMode === "jungle" &&
+      delta.line_completed &&
+      !delta.next_line &&
+      state.activeLessonMeta !== null &&
+      !state.lessonCompletion;
 
     let nextStatuses = state.statuses;
     let nextLineIndex = state.lineIndex;
@@ -574,6 +746,10 @@ export const useTypingStore = create<TypingState>((set, get) => ({
       unlockedToast: delta.newly_unlocked_key ?? state.unlockedToast,
       examTimerRunning: shouldStartExamTimer ? true : state.examTimerRunning,
     });
+
+    if (shouldFinishJungle) {
+      void get().completeJungleLesson();
+    }
   },
 
   enqueueKeyInput: (event) => {

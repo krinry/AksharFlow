@@ -1,4 +1,4 @@
-import { AlertTriangle, Crosshair, RotateCcw } from "lucide-react";
+import { AlertTriangle, Crosshair, Map, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -16,10 +16,13 @@ export function MetricsStrip() {
   const lineIndex = useTypingStore((s) => s.lineIndex);
   const layout = useTypingStore((s) => s.layout);
   const practiceMode = useTypingStore((s) => s.practiceMode);
+  const activeLessonMeta = useTypingStore((s) => s.activeLessonMeta);
   const capsLock = useTypingStore((s) => s.capsLock);
   const pendingImePreview = useTypingStore((s) => s.pendingImePreview);
   const uiLang = useTypingStore((s) => s.uiLang);
   const initSession = useTypingStore((s) => s.initSession);
+  const restartActiveLesson = useTypingStore((s) => s.restartActiveLesson);
+  const exitActiveLessonToMap = useTypingStore((s) => s.exitActiveLessonToMap);
 
   const t = getDictionary(uiLang);
   const isHindi = layout !== "en_qwerty";
@@ -38,14 +41,21 @@ export function MetricsStrip() {
       <div className="flex flex-wrap items-center gap-2">
         {practiceMode === "weak_drill" && (
           <Badge variant="accent">
-            <Crosshair className="h-3.5 w-3.5" />
+            <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{t.typing.weakDrillActive}</span>
           </Badge>
         )}
 
+        {practiceMode === "jungle" && activeLessonMeta && (
+          <Button type="button" variant="outline" size="sm" onClick={exitActiveLessonToMap}>
+            <Map className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t.jungle.backToMap}</span>
+          </Button>
+        )}
+
         {capsLock && (
           <Badge variant="warning" title={isHindi ? t.typing.capsLockHindiHint : undefined}>
-            <AlertTriangle className="h-3.5 w-3.5" />
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{t.typing.capsLockOn}</span>
             {isHindi && (
               <span className="hidden opacity-80 sm:inline">· {t.typing.capsLockHindiHint}</span>
@@ -64,14 +74,21 @@ export function MetricsStrip() {
 
         {practiceMode !== "exam" && (
           <Button
+            type="button"
             variant="secondary"
             size="sm"
-            onClick={() => void initSession()}
+            onClick={() =>
+              void (practiceMode === "jungle" ? restartActiveLesson() : initSession())
+            }
             title={t.typing.restartShortcut}
           >
-            <RotateCcw className="h-3.5 w-3.5" />
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             <span>
-              {practiceMode === "weak_drill" ? t.typing.exitDrill : t.typing.restart}
+              {practiceMode === "jungle"
+                ? t.typing.restartLesson
+                : practiceMode === "weak_drill"
+                  ? t.typing.exitDrill
+                  : t.typing.restart}
             </span>
           </Button>
         )}

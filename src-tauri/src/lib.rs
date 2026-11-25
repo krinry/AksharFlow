@@ -6,10 +6,11 @@ use tauri::Manager;
 use tauri_specta::{Builder, collect_commands};
 
 use crate::commands::{
-    export_backup_file, finish_session, get_analytics, get_bootstrap_state, get_layout_keycaps,
-    import_backup_file, list_custom_passages, list_exam_passages, process_key_event,
-    reset_layout_progress, save_custom_passage, start_exam_session, start_session,
-    start_weak_key_drill, update_settings,
+    complete_jungle_lesson, export_backup_file, finish_session, get_analytics,
+    get_bootstrap_state, get_jungle_roadmap, get_layout_keycaps, import_backup_file,
+    list_custom_passages, list_exam_passages, process_key_event, reset_layout_progress,
+    resolve_game_keystroke, save_custom_passage, start_exam_session, start_jungle_lesson,
+    start_session, start_weak_key_drill, update_settings,
 };
 use crate::state::AppState;
 
@@ -19,6 +20,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
         start_session,
         start_weak_key_drill,
         start_exam_session,
+        get_jungle_roadmap,
+        start_jungle_lesson,
+        complete_jungle_lesson,
+        resolve_game_keystroke,
         process_key_event,
         finish_session,
         get_analytics,

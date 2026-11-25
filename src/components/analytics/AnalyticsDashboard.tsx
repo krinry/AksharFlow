@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Activity, Award, Crosshair, Flame, History, Zap } from "lucide-react";
+import { Activity, Award, Compass, Crosshair, Flame, History, Star, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WpmTrendChart } from "@/components/analytics/WpmTrendChart";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -8,9 +8,11 @@ import { cn } from "@/lib/utils";
 
 export function AnalyticsDashboard() {
   const analytics = useTypingStore((s) => s.analytics);
+  const analyticsLoading = useTypingStore((s) => s.analyticsLoading);
   const layout = useTypingStore((s) => s.layout);
   const uiLang = useTypingStore((s) => s.uiLang);
   const startWeakKeyDrill = useTypingStore((s) => s.startWeakKeyDrill);
+  const setActiveTab = useTypingStore((s) => s.setActiveTab);
 
   const t = getDictionary(uiLang);
   const isHindi = layout !== "en_qwerty";
@@ -31,32 +33,86 @@ export function AnalyticsDashboard() {
     ? `${analytics.unlocked_count}/${analytics.total_keys}`
     : "--";
 
+  const earnedStars = analytics?.jungle_earned_stars ?? 0;
+  const maxStars = analytics?.jungle_max_stars ?? 3500;
+  const clearedLessons = analytics?.jungle_completed_lessons ?? 0;
+  const totalLessons = analytics?.jungle_total_lessons ?? 700;
+  const junglePct = totalLessons > 0 ? Math.round((clearedLessons / totalLessons) * 100) : 0;
+
+  if (analyticsLoading && !analytics) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground">
+        Loading telemetry...
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-5">
+      {/* Jungle Journey Mastery Summary */}
+      <section className="flex flex-col justify-between gap-4 rounded-2xl border border-border bg-card p-4 shadow-xs sm:flex-row sm:items-center">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Compass className="h-4 w-4 text-primary" aria-hidden="true" />
+            <h2 className="text-sm font-bold text-foreground">
+              {t.analytics.jungleProgressTitle}
+            </h2>
+            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {t.layouts[layout]}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-mono font-semibold text-foreground">
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" aria-hidden="true" />
+              {t.analytics.starsEarned}: {earnedStars.toLocaleString()} / {maxStars.toLocaleString()}
+            </span>
+            <span className="font-mono text-muted-foreground">
+              {t.analytics.lessonsCompleted}: {clearedLessons} / {totalLessons} ({junglePct}%)
+            </span>
+          </div>
+          <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${Math.max(earnedStars > 0 ? 2 : 0, junglePct)}%` }}
+            />
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void setActiveTab("jungle")}
+        >
+          <Compass className="h-3.5 w-3.5" aria-hidden="true" />
+          {t.nav.jungle}
+        </Button>
+      </section>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <KpiCard
-          icon={<Zap className="h-4 w-4 text-primary" />}
+          icon={<Zap className="h-4 w-4 text-primary" aria-hidden="true" />}
           label={t.analytics.avgNetWpm}
           value={String(analytics?.avg_net_wpm ?? 0)}
         />
         <KpiCard
-          icon={<Award className="h-4 w-4 text-amber-500" />}
+          icon={<Award className="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />}
           label={t.analytics.bestNetWpm}
           value={String(analytics?.best_net_wpm ?? 0)}
         />
         <KpiCard
-          icon={<Activity className="h-4 w-4 text-emerald-500" />}
+          icon={<Activity className="h-4 w-4 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />}
           label={t.analytics.avgAccuracy}
           value={`${(analytics?.avg_accuracy ?? 100).toFixed(1)}%`}
         />
         <KpiCard
-          icon={<History className="h-4 w-4 text-sky-500" />}
+          icon={<History className="h-4 w-4 text-sky-700 dark:text-sky-400" aria-hidden="true" />}
           label={t.analytics.totalSessions}
           value={String(analytics?.total_sessions ?? 0)}
         />
         <KpiCard
-          icon={<Flame className="h-4 w-4 text-rose-500" />}
+          icon={<Flame className="h-4 w-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />}
           label={t.adaptive.unlockedKeys}
           value={unlockedPct}
         />
@@ -108,7 +164,7 @@ export function AnalyticsDashboard() {
                             {acc}% · {Math.round(stat.ema_latency_ms ?? 0)}ms
                           </span>
                         </div>
-                        <span className="font-mono font-semibold text-amber-500">
+                        <span className="font-mono font-semibold text-amber-700 dark:text-amber-400">
                           {conf}% ({total} {t.analytics.attempts})
                         </span>
                       </div>
@@ -165,11 +221,13 @@ export function AnalyticsDashboard() {
                     </td>
                     <td className="py-2 pr-3 font-mono">{Math.round(s.gross_wpm ?? 0)}</td>
                     <td className="py-2 pr-3 font-mono">{Math.round(s.kph ?? 0)}</td>
-                    <td className="py-2 pr-3 font-mono text-emerald-500">
+                    <td className="py-2 pr-3 font-mono text-emerald-700 dark:text-emerald-400">
                       {(s.accuracy ?? 100).toFixed(1)}%
                     </td>
                     <td className="py-2 pr-3 font-mono">{Math.round(s.consistency ?? 100)}%</td>
-                    <td className="py-2 pr-3 font-mono text-rose-500">{s.errors}</td>
+                    <td className="py-2 pr-3 font-mono text-rose-700 dark:text-rose-400">
+                      {s.errors}
+                    </td>
                     <td className="py-2 text-muted-foreground">
                       {new Date(s.created_at).toLocaleString()}
                     </td>

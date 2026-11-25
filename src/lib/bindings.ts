@@ -13,19 +13,27 @@ export const commands = {
 	startWeakKeyDrill: (layout: LayoutKind, focusKeyIds: string[], wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("start_weak_key_drill", { layout, focusKeyIds, wordsPerLine }, options),
 	/**  Starts a timed CPCT/SSC Exam Mode session over `passage_content`. */
 	startExamSession: (layout: LayoutKind, passageContent: string, durationSecs: number, allowBackspace: boolean, options?: InvokeOptions) => __TAURI_INVOKE<SessionSnapshot_Serialize>("start_exam_session", { layout, passageContent, durationSecs, allowBackspace }, options),
+	/**  Returns the 28-unit / 700-lesson Jungle Roadmap merged with saved stars for `layout`. */
+	getJungleRoadmap: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<JungleRoadmapSnapshot>("get_jungle_roadmap", { layout }, options),
+	/**  Starts a Jungle Journey lesson or Mini-Game wave by `lesson_id`. */
+	startJungleLesson: (layout: LayoutKind, lessonId: string, options?: InvokeOptions) => __TAURI_INVOKE<SessionSnapshot_Serialize>("start_jungle_lesson", { layout, lessonId }, options),
+	/**  Grades the active Jungle Journey lesson or Mini-Game and persists 1-to-5 star progress. */
+	completeJungleLesson: (netWpm: number | null, accuracy: number | null, errors: number | null, keystrokes: number | null, options?: InvokeOptions) => __TAURI_INVOKE<LessonCompletionResult_Serialize>("complete_jungle_lesson", { netWpm, accuracy, errors, keystrokes }, options),
+	/**  Resolves a Mini-Game keystroke through the active layout's Rust IME and grapheme matcher. */
+	resolveGameKeystroke: (event: KeyInputEvent, candidateWords: string[], options?: InvokeOptions) => __TAURI_INVOKE<GameKeyResult_Serialize>("resolve_game_keystroke", { event, candidateWords }, options),
 	/**  Processes a physical or touch-keyboard key event and returns only a lightweight state delta. */
 	processKeyEvent: (event: KeyInputEvent, options?: InvokeOptions) => __TAURI_INVOKE<KeyEventDelta_Serialize>("process_key_event", { event }, options),
 	/**  Ends the active typing session, persists summary telemetry, and returns metrics. */
 	finishSession: (options?: InvokeOptions) => __TAURI_INVOKE<SessionSummary>("finish_session", undefined, options),
-	/**  Returns per-key accuracy/latency telemetry and recent session history for `layout`. */
+	/**  Returns per-key accuracy/latency telemetry, Jungle star mastery, and session history for `layout`. */
 	getAnalytics: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<AnalyticsSnapshot_Serialize>("get_analytics", { layout }, options),
 	/**  Persists updated settings and recomputes per-key confidence scores. */
 	updateSettings: (settings: AppSettings, options?: InvokeOptions) => __TAURI_INVOKE<AppSettings>("update_settings", { settings }, options),
-	/**  Exports settings, key stats, sessions, and custom passages as JSON to `path`. */
+	/**  Exports settings, key stats, sessions, passages, and lesson progress as JSON to `path`. */
 	exportBackupFile: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<ExportResult>("export_backup_file", { path }, options),
 	/**  Imports and validates a `.json` backup file (`replace = true` overwrites, `false` merges). */
 	importBackupFile: (path: string, replace: boolean, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("import_backup_file", { path, replace }, options),
-	/**  Resets unlocked keys and telemetry for `layout` back to Home Row. */
+	/**  Resets Smart Adaptive unlocked keys and telemetry for `layout` back to Home Row. */
 	resetLayoutProgress: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("reset_layout_progress", { layout }, options),
 	/**  Lists built-in CPCT/SSC exam passages combined with user-saved custom passages. */
 	listExamPassages: (options?: InvokeOptions) => __TAURI_INVOKE<ExamPassage_Serialize[]>("list_exam_passages", undefined, options),
@@ -38,10 +46,24 @@ export const commands = {
 };
 
 /* Types */
-/**  Aggregate analytics payload for a layout. */
+/**  Metadata attached to `SessionSnapshot` when running a Jungle Journey lesson or Mini-Game. */
+export type ActiveLessonMeta = {
+	id: string,
+	unit_number: number,
+	lesson_in_unit: number,
+	global_number: number,
+	kind: LessonKind,
+	title_en: string,
+	title_hi: string,
+	focus_keys: string[],
+	target_wpm: number | null,
+	min_accuracy: number | null,
+};
+
+/**  Aggregate analytics payload for a layout, including Jungle Journey star mastery. */
 export type AnalyticsSnapshot = AnalyticsSnapshot_Serialize | AnalyticsSnapshot_Deserialize;
 
-/**  Aggregate analytics payload for a layout. */
+/**  Aggregate analytics payload for a layout, including Jungle Journey star mastery. */
 export type AnalyticsSnapshot_Deserialize = {
 	layout: LayoutKind,
 	key_stats: KeyStatRecord_Deserialize[],
@@ -52,9 +74,13 @@ export type AnalyticsSnapshot_Deserialize = {
 	avg_accuracy: number | null,
 	unlocked_count: number,
 	total_keys: number,
+	jungle_earned_stars: number,
+	jungle_max_stars: number,
+	jungle_completed_lessons: number,
+	jungle_total_lessons: number,
 };
 
-/**  Aggregate analytics payload for a layout. */
+/**  Aggregate analytics payload for a layout, including Jungle Journey star mastery. */
 export type AnalyticsSnapshot_Serialize = {
 	layout: LayoutKind,
 	key_stats: KeyStatRecord_Serialize[],
@@ -65,6 +91,10 @@ export type AnalyticsSnapshot_Serialize = {
 	avg_accuracy: number | null,
 	unlocked_count: number,
 	total_keys: number,
+	jungle_earned_stars: number,
+	jungle_max_stars: number,
+	jungle_completed_lessons: number,
+	jungle_total_lessons: number,
 };
 
 /**  Persisted application & adaptive learning preferences. */
@@ -99,6 +129,9 @@ export type BootstrapSnapshot_Serialize = {
 	key_stats: KeyStatRecord_Serialize[],
 	recent_sessions: SessionRecord[],
 };
+
+/**  Broad pedagogical phase grouping the 28 curriculum units. */
+export type CurriculumStage = "home_row" | "top_row_and_matras" | "bottom_row_and_conjuncts" | "shift_numbers_and_symbols" | "fluency_and_stories";
 
 /**  User-saved custom practice or exam passage. */
 export type CustomPassage = {
@@ -144,6 +177,35 @@ export type ExportResult = {
 /**  Touch-typing finger assignment for the Virtual Keyboard & Finger Guide. */
 export type FingerId = "left_pinky" | "left_ring" | "left_middle" | "left_index" | "thumb" | "right_index" | "right_middle" | "right_ring" | "right_pinky";
 
+/**  Result returned by `resolve_game_keystroke` for the Falling Words / Balloon Pop Mini-Game. */
+export type GameKeyResult = GameKeyResult_Serialize | GameKeyResult_Deserialize;
+
+/**  Result returned by `resolve_game_keystroke` for the Falling Words / Balloon Pop Mini-Game. */
+export type GameKeyResult_Deserialize = {
+	locked_word?: string | null,
+	typed_preview: string,
+	matched_graphemes: number,
+	total_graphemes: number,
+	pending_ime_preview?: string | null,
+	popped: boolean,
+	is_error: boolean,
+	sound_kind: KeySoundKind,
+	metrics: LiveMetrics,
+};
+
+/**  Result returned by `resolve_game_keystroke` for the Falling Words / Balloon Pop Mini-Game. */
+export type GameKeyResult_Serialize = {
+	locked_word: string | null,
+	typed_preview: string,
+	matched_graphemes: number,
+	total_graphemes: number,
+	pending_ime_preview: string | null,
+	popped: boolean,
+	is_error: boolean,
+	sound_kind: KeySoundKind,
+	metrics: LiveMetrics,
+};
+
 /**  Visual state of an individual grapheme cluster in the typing stage. */
 export type GraphemeStatus = "pending" | "matched" | "error";
 
@@ -151,6 +213,17 @@ export type GraphemeStatus = "pending" | "matched" | "error";
 export type GraphemeUpdate = {
 	index: number,
 	status: GraphemeStatus,
+};
+
+/**  Full Jungle Journey roadmap overview for a layout. */
+export type JungleRoadmapSnapshot = {
+	layout: LayoutKind,
+	total_earned_stars: number,
+	total_max_stars: number,
+	completed_lessons: number,
+	total_lessons: number,
+	next_lesson_id: string,
+	units: UnitSummary[],
 };
 
 /**  Lightweight per-keystroke state delta (Safeguard #1) to avoid re-serializing the full line. */
@@ -270,6 +343,66 @@ export type KeycapDescriptor_Serialize = {
 /**  Supported keyboard layouts built into AksharFlow (zero OS layout dependency). */
 export type LayoutKind = "en_qwerty" | "hi_inscript" | "hi_remington_gail";
 
+/**  Grading outcome emitted upon finishing a Jungle Journey lesson or Mini-Game. */
+export type LessonCompletionResult = LessonCompletionResult_Serialize | LessonCompletionResult_Deserialize;
+
+/**  Grading outcome emitted upon finishing a Jungle Journey lesson or Mini-Game. */
+export type LessonCompletionResult_Deserialize = {
+	lesson_id: string,
+	layout: LayoutKind,
+	kind: LessonKind,
+	stars_earned: number,
+	best_stars: number,
+	is_new_best: boolean,
+	passed: boolean,
+	net_wpm: number | null,
+	accuracy: number | null,
+	target_wpm: number | null,
+	min_accuracy: number | null,
+	next_lesson_id?: string | null,
+	next_lesson_unlocked: boolean,
+};
+
+/**  Grading outcome emitted upon finishing a Jungle Journey lesson or Mini-Game. */
+export type LessonCompletionResult_Serialize = {
+	lesson_id: string,
+	layout: LayoutKind,
+	kind: LessonKind,
+	stars_earned: number,
+	best_stars: number,
+	is_new_best: boolean,
+	passed: boolean,
+	net_wpm: number | null,
+	accuracy: number | null,
+	target_wpm: number | null,
+	min_accuracy: number | null,
+	next_lesson_id: string | null,
+	next_lesson_unlocked: boolean,
+};
+
+/**  Pedagogical activity type assigned to each lesson node in the 700-lesson Jungle Journey. */
+export type LessonKind = "key_intro" | "drill" | "words" | "sentences" | "review_challenge" | "mini_game";
+
+/**  Compact node summary rendered inside the interactive Jungle Roadmap. */
+export type LessonNodeSummary = {
+	id: string,
+	unit_number: number,
+	lesson_in_unit: number,
+	global_number: number,
+	kind: LessonKind,
+	title_en: string,
+	title_hi: string,
+	focus_keys: string[],
+	target_wpm: number | null,
+	min_accuracy: number | null,
+	unlocked: boolean,
+	stars: number,
+	best_wpm: number | null,
+	best_accuracy: number | null,
+	completed: boolean,
+	attempts: number,
+};
+
 /**  New line payload sent inside `KeyEventDelta` only when a line completes and rolls over. */
 export type LineRolloverPayload = {
 	line_index: number,
@@ -299,7 +432,7 @@ export type NextKeyHint = {
 };
 
 /**  Active training mode inside `SessionEngine`. */
-export type PracticeMode = "adaptive" | "weak_drill" | "exam";
+export type PracticeMode = "adaptive" | "weak_drill" | "exam" | "jungle" | "mini_game";
 
 /**  Persisted completed typing session summary row. */
 export type SessionRecord = {
@@ -327,6 +460,7 @@ export type SessionSnapshot_Deserialize = {
 	mode: PracticeMode,
 	allow_backspace: boolean,
 	exam_duration_secs?: number | null,
+	lesson_meta?: ActiveLessonMeta | null,
 	line_index: number,
 	words: string[],
 	graphemes: string[],
@@ -341,6 +475,7 @@ export type SessionSnapshot_Serialize = {
 	mode: PracticeMode,
 	allow_backspace: boolean,
 	exam_duration_secs: number | null,
+	lesson_meta: ActiveLessonMeta | null,
 	line_index: number,
 	words: string[],
 	graphemes: string[],
@@ -355,6 +490,22 @@ export type SessionSummary = {
 	mode: PracticeMode,
 	lines_completed: number,
 	metrics: LiveMetrics,
+};
+
+/**  Unit container grouping 25 sequential lesson nodes for the Jungle Map UI. */
+export type UnitSummary = {
+	unit_number: number,
+	stage: CurriculumStage,
+	title_en: string,
+	title_hi: string,
+	focus_keys: string[],
+	target_wpm: number | null,
+	min_accuracy: number | null,
+	earned_stars: number,
+	max_stars: number,
+	completed_lessons: number,
+	unlocked: boolean,
+	lessons: LessonNodeSummary[],
 };
 
 /**  Toast/UI notification payload emitted when a learner unlocks a new key. */

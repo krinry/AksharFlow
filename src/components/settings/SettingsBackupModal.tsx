@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, RotateCcw, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -18,6 +18,20 @@ export function SettingsBackupModal() {
   const [confirmReset, setConfirmReset] = useState(false);
 
   const t = getDictionary(uiLang);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setConfirmReset(false);
+        setStatusMsg(null);
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen]);
 
   if (!open) return null;
 
@@ -54,20 +68,29 @@ export function SettingsBackupModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+    >
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-bold">{t.settings.title}</h2>
+          <h2 id="settings-modal-title" className="text-base font-bold">
+            {t.settings.title}
+          </h2>
           <Button
+            type="button"
             variant="ghost"
             size="icon"
+            aria-label={t.settings.close}
             onClick={() => {
               setConfirmReset(false);
               setStatusMsg(null);
               setOpen(false);
             }}
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
 

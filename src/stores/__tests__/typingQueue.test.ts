@@ -4,7 +4,7 @@ import { resetKeyQueueForTest, useTypingStore } from "@/stores/useTypingStore";
 
 function makeSnapshot(
   graphemes: string[],
-  mode: "adaptive" | "weak_drill" | "exam" = "adaptive",
+  mode: "adaptive" | "weak_drill" | "exam" | "jungle" | "mini_game" = "adaptive",
 ): SessionSnapshot_Serialize {
   return {
     session_id: "test-1",
@@ -12,6 +12,21 @@ function makeSnapshot(
     mode,
     allow_backspace: true,
     exam_duration_secs: mode === "exam" ? 60 : null,
+    lesson_meta:
+      mode === "jungle" || mode === "mini_game"
+        ? {
+            id: "u1-l1",
+            unit_number: 1,
+            lesson_in_unit: 1,
+            global_number: 1,
+            kind: mode === "mini_game" ? "mini_game" : "key_intro",
+            title_en: "Key Introduction · U1.1",
+            title_hi: "नई कुंजी परिचय · 1.1",
+            focus_keys: ["f", "j"],
+            target_wpm: 16,
+            min_accuracy: 85,
+          }
+        : null,
     line_index: 0,
     words: [graphemes.join("")],
     graphemes,
@@ -181,5 +196,109 @@ describe("useTypingStore safeguards, adaptive state & exam timer", () => {
 
     store.tickExamTimer();
     expect(useTypingStore.getState().examRemainingSecs).toBe(59);
+  });
+
+  it("switches across Jungle Journey and triggers 5-star completion without mutating Adaptive stats", async () => {
+    const prevWindow = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = { __TAURI_INTERNALS__: {} };
+
+    try {
+      vi.spyOn(commands, "getJungleRoadmap").mockResolvedValue({
+        layout: "en_qwerty",
+        total_earned_stars: 5,
+        total_max_stars: 3500,
+        completed_lessons: 1,
+        total_lessons: 700,
+        next_lesson_id: "u1-l2",
+        units: [],
+      });
+      vi.spyOn(commands, "startJungleLesson").mockResolvedValue(
+        makeSnapshot(["f", "j"], "jungle"),
+      );
+      vi.spyOn(commands, "completeJungleLesson").mockResolvedValue({
+        lesson_id: "u1-l1",
+        layout: "en_qwerty",
+        kind: "key_intro",
+        stars_earned: 4,
+        best_stars: 4,
+        is_new_best: true,
+        passed: true,
+        net_wpm: 22,
+        accuracy: 96,
+        target_wpm: 16,
+        min_accuracy: 85,
+        next_lesson_id: "u1-l2",
+        next_lesson_unlocked: true,
+      });
+
+      const store = useTypingStore.getState();
+      await store.setActiveTab("jungle");
+      expect(useTypingStore.getState().jungleRoadmap?.total_lessons).toBe(700);
+
+      await store.startJungleLesson("u1-l1");
+      expect(useTypingStore.getState().practiceMode).toBe("jungle");
+      expect(useTypingStore.getState().activeLessonMeta?.id).toBe("u1-l1");
+
+      // Completing a Jungle lesson line (next_line: null) triggers 5-star grading.
+      useTypingStore.getState().applyDelta({
+        ...makeDelta(2, 1),
+        line_completed: true,
+        next_line: null,
+        updated_key_stats: null,
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(commands.completeJungleLesson).toHaveBeenCalledTimes(1);
+      expect(useTypingStore.getState().lessonCompletion?.stars_earned).toBe(4);
+      expect(useTypingStore.getState().keyStats).toEqual([]);
+    } finally {
+      vi.restoreAllMocks();
+      if (prevWindow === undefined) {
+        delete (globalThis as { window?: unknown }).window;
+      } else {
+        (globalThis as { window?: unknown }).window = prevWindow;
+      }
+    }
+  });
+
+  it("serializes Mini-Game keystrokes on FIFO queue via Rust IME resolver", async () => {
+    vi.spyOn(commands, "resolveGameKeystroke").mockResolvedValue({
+      locked_word: "किला",
+      typed_preview: "कि",
+      matched_graphemes: 1,
+      total_graphemes: 2,
+      pending_ime_preview: null,
+      popped: false,
+      is_error: false,
+      sound_kind: "tap",
+      metrics: {
+        gross_wpm: 28,
+        net_wpm: 28,
+        kph: 8400,
+        accuracy: 100,
+        consistency: 100,
+        elapsed_ms: 800,
+        keystrokes: 2,
+        errors: 0,
+      },
+    });
+
+    try {
+      const res = await useTypingStore.getState().resolveGameKeystroke(
+        {
+          code: "KeyD",
+          shift: false,
+          alt_gr: false,
+          ctrl: false,
+          caps_lock: false,
+          timestamp_ms: 800,
+        },
+        ["किला"],
+      );
+      expect(res?.locked_word).toBe("किला");
+      expect(useTypingStore.getState().metrics.net_wpm).toBe(28);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

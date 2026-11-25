@@ -10,6 +10,11 @@ use crate::adaptive::{
     reachable_unlocked_keys, reconcile_key_stats, record_telemetry_and_check_unlock,
 };
 use crate::corpus::{Corpus, ExamPassage};
+use crate::curriculum::{
+    JungleRoadmapSnapshot, LessonCompletionResult, LessonDefinition, LessonKind,
+    LessonProgressRecord, build_roadmap_snapshot, calculate_lesson_stars, generate_lesson_by_id,
+    next_lesson_id_after,
+};
 use crate::error::AksharError;
 use crate::grapheme::{GraphemeMatch, GraphemeStatus, GraphemeUpdate, evaluate_grapheme, split_graphemes};
 use crate::keymap::remington_gail::RemingtonIme;
@@ -33,6 +38,8 @@ pub enum PracticeMode {
     Adaptive,
     WeakDrill,
     Exam,
+    Jungle,
+    MiniGame,
 }
 
 impl PracticeMode {
@@ -41,6 +48,8 @@ impl PracticeMode {
             Self::Adaptive => "adaptive",
             Self::WeakDrill => "weak_drill",
             Self::Exam => "exam",
+            Self::Jungle => "jungle",
+            Self::MiniGame => "mini_game",
         }
     }
 }
@@ -67,6 +76,22 @@ pub struct LineRolloverPayload {
     pub graphemes: Vec<String>,
 }
 
+/// Metadata attached to `SessionSnapshot` when running a Jungle Journey lesson or Mini-Game.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta-types", derive(specta::Type))]
+pub struct ActiveLessonMeta {
+    pub id: String,
+    pub unit_number: u32,
+    pub lesson_in_unit: u32,
+    pub global_number: u32,
+    pub kind: LessonKind,
+    pub title_en: String,
+    pub title_hi: String,
+    pub focus_keys: Vec<String>,
+    pub target_wpm: f64,
+    pub min_accuracy: f64,
+}
+
 /// Initial state snapshot sent once when starting or restarting a session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta-types", derive(specta::Type))]
@@ -76,6 +101,7 @@ pub struct SessionSnapshot {
     pub mode: PracticeMode,
     pub allow_backspace: bool,
     pub exam_duration_secs: Option<u32>,
+    pub lesson_meta: Option<ActiveLessonMeta>,
     pub line_index: u32,
     pub words: Vec<String>,
     pub graphemes: Vec<String>,
@@ -93,7 +119,7 @@ pub struct BootstrapSnapshot {
     pub recent_sessions: Vec<SessionRecord>,
 }
 
-/// Aggregate analytics payload for a layout.
+/// Aggregate analytics payload for a layout, including Jungle Journey star mastery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta-types", derive(specta::Type))]
 pub struct AnalyticsSnapshot {
@@ -106,6 +132,10 @@ pub struct AnalyticsSnapshot {
     pub avg_accuracy: f64,
     pub unlocked_count: u32,
     pub total_keys: u32,
+    pub jungle_earned_stars: u32,
+    pub jungle_max_stars: u32,
+    pub jungle_completed_lessons: u32,
+    pub jungle_total_lessons: u32,
 }
 
 /// Summary returned after exporting a `.json` backup file.
@@ -138,6 +168,21 @@ pub struct KeyEventDelta {
     pub updated_key_stats: Option<Vec<KeyStatRecord>>,
 }
 
+/// Result returned by `resolve_game_keystroke` for the Falling Words / Balloon Pop Mini-Game.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta-types", derive(specta::Type))]
+pub struct GameKeyResult {
+    pub locked_word: Option<String>,
+    pub typed_preview: String,
+    pub matched_graphemes: u32,
+    pub total_graphemes: u32,
+    pub pending_ime_preview: Option<String>,
+    pub popped: bool,
+    pub is_error: bool,
+    pub sound_kind: KeySoundKind,
+    pub metrics: LiveMetrics,
+}
+
 /// Final summary returned when ending a session or exam.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta-types", derive(specta::Type))]
@@ -164,6 +209,7 @@ pub struct SessionEngine {
     exam_words: Vec<String>,
     exam_cursor: usize,
     drill_focus_keys: Vec<String>,
+    active_lesson: Option<LessonDefinition>,
     words_per_line: usize,
     line_index: u32,
     lines_completed: u32,
@@ -174,6 +220,11 @@ pub struct SessionEngine {
     grapheme_index: usize,
     active_typed: String,
     remington_ime: RemingtonIme,
+    game_locked_word: Option<String>,
+    game_graphemes: Vec<String>,
+    game_grapheme_index: usize,
+    game_active_typed: String,
+    game_ime: RemingtonIme,
     metrics: MetricsTracker,
     last_key_ts_ms: Option<f64>,
     active: bool,
@@ -216,6 +267,7 @@ impl SessionEngine {
             exam_words: Vec::new(),
             exam_cursor: 0,
             drill_focus_keys: Vec::new(),
+            active_lesson: None,
             words_per_line: DEFAULT_WORDS_PER_LINE,
             line_index: 0,
             lines_completed: 0,
@@ -226,6 +278,11 @@ impl SessionEngine {
             grapheme_index: 0,
             active_typed: String::new(),
             remington_ime: RemingtonIme::new(),
+            game_locked_word: None,
+            game_graphemes: Vec::new(),
+            game_grapheme_index: 0,
+            game_active_typed: String::new(),
+            game_ime: RemingtonIme::new(),
             metrics: MetricsTracker::new(),
             last_key_ts_ms: None,
             active: false,
@@ -263,6 +320,7 @@ impl SessionEngine {
         words_per_line: Option<usize>,
     ) -> Result<SessionSnapshot, AksharError> {
         let count = words_per_line.unwrap_or(DEFAULT_WORDS_PER_LINE).clamp(5, 40);
+        self.active_lesson = None;
         self.reset_session_shell(layout, PracticeMode::Adaptive, true, None, count)?;
         self.load_next_line_words(None)?;
         Ok(self.build_snapshot())
@@ -277,6 +335,7 @@ impl SessionEngine {
     ) -> Result<BootstrapSnapshot, AksharError> {
         let count = words_per_line.unwrap_or(DEFAULT_WORDS_PER_LINE).clamp(5, 40);
         self.drill_focus_keys = focus_key_ids;
+        self.active_lesson = None;
         self.reset_session_shell(layout, PracticeMode::WeakDrill, true, None, count)?;
         self.load_next_line_words(None)?;
         let session = self.build_snapshot();
@@ -289,7 +348,7 @@ impl SessionEngine {
         })
     }
 
-    /// Starts a timed Exam / Paragraph simulation (CPCT / SSC style) over `passage_content`.
+    /// Starts a timed CPCT/SSC Exam Mode session over `passage_content`.
     pub fn start_exam_session(
         &mut self,
         layout: LayoutKind,
@@ -306,6 +365,7 @@ impl SessionEngine {
         }
         self.exam_words = words;
         self.exam_cursor = 0;
+        self.active_lesson = None;
         self.reset_session_shell(
             layout,
             PracticeMode::Exam,
@@ -317,6 +377,255 @@ impl SessionEngine {
         Ok(self.build_snapshot())
     }
 
+    /// Returns the 28-unit / 700-lesson Jungle Roadmap merged with persisted star ratings.
+    pub fn get_jungle_roadmap(&self, layout: LayoutKind) -> Result<JungleRoadmapSnapshot, AksharError> {
+        let rows = self.storage.load_lesson_progress(layout)?;
+        Ok(build_roadmap_snapshot(layout, &rows))
+    }
+
+    /// Starts a specific Jungle Journey lesson or Mini-Game wave by `lesson_id`.
+    pub fn start_jungle_lesson(
+        &mut self,
+        layout: LayoutKind,
+        lesson_id: &str,
+    ) -> Result<SessionSnapshot, AksharError> {
+        let def = generate_lesson_by_id(layout, lesson_id, &self.corpus)
+            .ok_or_else(|| AksharError::EmptyCorpus(format!("{layout}:{lesson_id}")))?;
+        let mode = if def.kind == LessonKind::MiniGame {
+            PracticeMode::MiniGame
+        } else {
+            PracticeMode::Jungle
+        };
+        let words = def.words.clone();
+        self.active_lesson = Some(def);
+        self.reset_game_target();
+        self.reset_session_shell(layout, mode, true, None, words.len())?;
+        self.load_next_line_words(Some(words))?;
+        Ok(self.build_snapshot())
+    }
+
+    /// Grades an active Jungle lesson or Mini-Game, persists 0-to-5 star progress, and unlocks the next node on >= 3 stars.
+    pub fn complete_jungle_lesson(
+        &mut self,
+        override_wpm: Option<f64>,
+        override_accuracy: Option<f64>,
+        override_errors: Option<u32>,
+        override_keystrokes: Option<u32>,
+    ) -> Result<LessonCompletionResult, AksharError> {
+        let def = self
+            .active_lesson
+            .clone()
+            .ok_or(AksharError::SessionNotActive)?;
+        self.active = false;
+
+        let snap = self.metrics.snapshot(None);
+        let net_wpm = override_wpm.unwrap_or(snap.net_wpm);
+        let accuracy = override_accuracy.unwrap_or(snap.accuracy);
+        let errors = override_errors.unwrap_or(snap.errors);
+        let keystrokes = override_keystrokes.unwrap_or(snap.keystrokes);
+
+        let stars_earned =
+            calculate_lesson_stars(net_wpm, accuracy, def.target_wpm, def.min_accuracy);
+        let passed = stars_earned >= 3;
+
+        let existing = self
+            .storage
+            .load_lesson_progress(def.layout)?
+            .into_iter()
+            .find(|r| r.lesson_id == def.id);
+
+        let prev_stars = existing.as_ref().map_or(0, |r| r.stars);
+        let best_stars = prev_stars.max(stars_earned);
+        let is_new_best = stars_earned > prev_stars;
+        let updated = LessonProgressRecord {
+            layout: def.layout,
+            lesson_id: def.id.clone(),
+            stars: best_stars,
+            best_wpm: existing.as_ref().map_or(net_wpm, |r| r.best_wpm.max(net_wpm)),
+            best_accuracy: existing.as_ref().map_or(accuracy, |r| r.best_accuracy.max(accuracy)),
+            completed: existing.as_ref().is_some_and(|r| r.completed) || passed,
+            attempts: existing.as_ref().map_or(1, |r| r.attempts + 1),
+            updated_at: Utc::now().to_rfc3339(),
+        };
+        self.storage.upsert_lesson_progress(&updated)?;
+
+        if keystrokes > 0 {
+            let mut rec_snap = snap;
+            rec_snap.net_wpm = net_wpm;
+            rec_snap.accuracy = accuracy;
+            rec_snap.errors = errors;
+            rec_snap.keystrokes = keystrokes;
+            self.persist_session_record(&rec_snap, "jungle")?;
+        }
+
+        let next_lesson_id = next_lesson_id_after(&def.id);
+        let next_lesson_unlocked = passed && next_lesson_id.is_some();
+
+        Ok(LessonCompletionResult {
+            lesson_id: def.id,
+            layout: def.layout,
+            kind: def.kind,
+            stars_earned,
+            best_stars,
+            is_new_best,
+            passed,
+            net_wpm,
+            accuracy,
+            target_wpm: def.target_wpm,
+            min_accuracy: def.min_accuracy,
+            next_lesson_id,
+            next_lesson_unlocked,
+        })
+    }
+
+    /// Routes Canvas Mini-Game keystrokes through the active layout's Rust IME & grapheme matcher.
+    pub fn resolve_game_keystroke(
+        &mut self,
+        event: &KeyInputEvent,
+        candidate_words: Vec<String>,
+    ) -> Result<GameKeyResult, AksharError> {
+        if !self.active {
+            return Err(AksharError::SessionNotActive);
+        }
+
+        if event.code == "Escape" {
+            self.reset_game_target();
+            return Ok(self.game_result(false, false, KeySoundKind::None, event.timestamp_ms));
+        }
+
+        let Some(key) = PhysicalKey::from_dom_code(&event.code) else {
+            return Err(AksharError::UnsupportedKeyCode(event.code.clone()));
+        };
+
+        // Space clears any dangling Remington `pending_short_i` and releases the current balloon lock.
+        if key == PhysicalKey::Space {
+            self.game_ime.reset();
+            self.reset_game_target();
+            return Ok(self.game_result(false, false, KeySoundKind::Space, event.timestamp_ms));
+        }
+
+        if key == PhysicalKey::Backspace {
+            if self.layout == LayoutKind::HiRemingtonGail {
+                if let Some(prev) = self.game_ime.undo_step() {
+                    self.game_active_typed = prev;
+                } else if !self.game_active_typed.is_empty() {
+                    self.game_active_typed.pop();
+                } else if self.game_grapheme_index > 0 {
+                    self.game_grapheme_index -= 1;
+                } else {
+                    self.reset_game_target();
+                }
+            } else if !self.game_active_typed.is_empty() {
+                self.game_active_typed.pop();
+            } else if self.game_grapheme_index > 0 {
+                self.game_grapheme_index -= 1;
+            } else {
+                self.reset_game_target();
+            }
+            return Ok(self.game_result(false, false, KeySoundKind::Backspace, event.timestamp_ms));
+        }
+
+        // Auto-lock onto the lowest matching candidate balloon when no word is currently locked.
+        if self.game_locked_word.is_none() {
+            let mut matched_candidate: Option<String> = None;
+            for word in candidate_words {
+                let graphemes = split_graphemes(&word);
+                if let Some(first_g) = graphemes.first() {
+                    let mut probe_ime = RemingtonIme::new();
+                    let (act, buf) =
+                        map_with_layout(self.layout, key, event, "", &mut probe_ime);
+                    let matches_first = match act {
+                        MappedKeyAction::PendingPreview(_) => {
+                            self.layout == LayoutKind::HiRemingtonGail
+                                && first_g.ends_with('\u{093F}')
+                        }
+                        MappedKeyAction::NoOp => false,
+                        _ => matches!(
+                            evaluate_grapheme(first_g, &buf),
+                            GraphemeMatch::Exact | GraphemeMatch::Partial
+                        ),
+                    };
+                    if matches_first {
+                        matched_candidate = Some(word);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(word) = matched_candidate {
+                self.game_locked_word = Some(word.clone());
+                self.game_graphemes = split_graphemes(&word);
+                self.game_grapheme_index = 0;
+                self.game_active_typed.clear();
+                self.game_ime.reset();
+            } else {
+                self.metrics.record_keystroke(event.timestamp_ms, false);
+                return Ok(self.game_result(false, true, KeySoundKind::Error, event.timestamp_ms));
+            }
+        }
+
+        let (action, updated) = map_with_layout(
+            self.layout,
+            key,
+            event,
+            &self.game_active_typed,
+            &mut self.game_ime,
+        );
+
+        if matches!(action, MappedKeyAction::NoOp) {
+            return Ok(self.game_result(false, false, KeySoundKind::None, event.timestamp_ms));
+        }
+
+        let target = self
+            .game_graphemes
+            .get(self.game_grapheme_index)
+            .cloned()
+            .unwrap_or_default();
+
+        if matches!(action, MappedKeyAction::PendingPreview(_)) {
+            let valid = self.layout == LayoutKind::HiRemingtonGail && target.ends_with('\u{093F}');
+            self.metrics.record_keystroke(event.timestamp_ms, valid);
+            return Ok(self.game_result(
+                false,
+                !valid,
+                if valid { KeySoundKind::Tap } else { KeySoundKind::Error },
+                event.timestamp_ms,
+            ));
+        }
+
+        self.game_active_typed = updated;
+        match evaluate_grapheme(&target, &self.game_active_typed) {
+            GraphemeMatch::Exact => {
+                self.metrics.record_keystroke(event.timestamp_ms, true);
+                self.game_active_typed.clear();
+                self.game_ime.reset();
+                self.game_grapheme_index += 1;
+                if self.game_grapheme_index >= self.game_graphemes.len() {
+                    let result =
+                        self.game_result(true, false, KeySoundKind::LineComplete, event.timestamp_ms);
+                    self.reset_game_target();
+                    return Ok(result);
+                }
+                Ok(self.game_result(false, false, KeySoundKind::Tap, event.timestamp_ms))
+            }
+            GraphemeMatch::Partial => {
+                self.metrics.record_keystroke(event.timestamp_ms, true);
+                Ok(self.game_result(false, false, KeySoundKind::Tap, event.timestamp_ms))
+            }
+            GraphemeMatch::Empty => {
+                Ok(self.game_result(false, false, KeySoundKind::None, event.timestamp_ms))
+            }
+            GraphemeMatch::Mismatch => {
+                self.metrics.record_keystroke(event.timestamp_ms, false);
+                if target.chars().count() <= 1 {
+                    self.game_active_typed.clear();
+                    self.game_ime.reset();
+                }
+                Ok(self.game_result(false, true, KeySoundKind::Error, event.timestamp_ms))
+            }
+        }
+    }
+
     /// Starts a session with explicit words (for deterministic tests or custom lines).
     pub fn start_with_words(
         &mut self,
@@ -326,9 +635,50 @@ impl SessionEngine {
         if words.is_empty() {
             return Err(AksharError::EmptyCorpus(layout.to_string()));
         }
+        self.active_lesson = None;
         self.reset_session_shell(layout, PracticeMode::Adaptive, true, None, words.len())?;
         self.load_next_line_words(Some(words))?;
         Ok(self.build_snapshot())
+    }
+
+    fn reset_game_target(&mut self) {
+        self.game_locked_word = None;
+        self.game_graphemes.clear();
+        self.game_grapheme_index = 0;
+        self.game_active_typed.clear();
+        self.game_ime.reset();
+    }
+
+    fn game_result(
+        &self,
+        popped: bool,
+        is_error: bool,
+        sound_kind: KeySoundKind,
+        timestamp_ms: f64,
+    ) -> GameKeyResult {
+        let completed_prefix: String = self
+            .game_graphemes
+            .iter()
+            .take(self.game_grapheme_index)
+            .cloned()
+            .collect();
+        let typed_preview = format!("{}{}", completed_prefix, self.game_active_typed);
+        let pending = if self.layout == LayoutKind::HiRemingtonGail {
+            self.game_ime.pending_preview().map(str::to_string)
+        } else {
+            None
+        };
+        GameKeyResult {
+            locked_word: self.game_locked_word.clone(),
+            typed_preview,
+            matched_graphemes: self.game_grapheme_index as u32,
+            total_graphemes: self.game_graphemes.len() as u32,
+            pending_ime_preview: pending,
+            popped,
+            is_error,
+            sound_kind,
+            metrics: self.metrics.snapshot(Some(timestamp_ms)),
+        }
     }
 
     fn reset_session_shell(
@@ -364,12 +714,25 @@ impl SessionEngine {
 
     fn build_snapshot(&self) -> SessionSnapshot {
         let delta = self.build_delta(Vec::new(), KeySoundKind::None, false, None, None, None, None);
+        let lesson_meta = self.active_lesson.as_ref().map(|d| ActiveLessonMeta {
+            id: d.id.clone(),
+            unit_number: d.unit_number,
+            lesson_in_unit: d.lesson_in_unit,
+            global_number: d.global_number,
+            kind: d.kind,
+            title_en: d.title_en.clone(),
+            title_hi: d.title_hi.clone(),
+            focus_keys: d.focus_keys.clone(),
+            target_wpm: d.target_wpm,
+            min_accuracy: d.min_accuracy,
+        });
         SessionSnapshot {
             session_id: self.session_id.clone(),
             layout: self.layout,
             mode: self.mode,
             allow_backspace: self.allow_backspace,
             exam_duration_secs: self.exam_duration_secs,
+            lesson_meta,
             line_index: self.line_index,
             words: self.words.clone(),
             graphemes: self.graphemes.clone(),
@@ -413,22 +776,13 @@ impl SessionEngine {
 
         let expected_key_id = self.expected_telemetry_key_id();
 
-        let (action, updated_buffer) = match self.layout {
-            LayoutKind::EnQwerty => {
-                let act = qwerty::map_key(key, event.shift, event.caps_lock);
-                let next = apply_action_to_buffer(&self.active_typed, &act);
-                (act, next)
-            }
-            LayoutKind::HiInscript => {
-                let act = inscript::map_key(key, event.shift, event.alt_gr);
-                let next = apply_action_to_buffer(&self.active_typed, &act);
-                (act, next)
-            }
-            LayoutKind::HiRemingtonGail => {
-                self.remington_ime
-                    .process_key(key, event.shift, event.alt_gr, &self.active_typed)
-            }
-        };
+        let (action, updated_buffer) = map_with_layout(
+            self.layout,
+            key,
+            event,
+            &self.active_typed,
+            &mut self.remington_ime,
+        );
 
         if matches!(action, MappedKeyAction::NoOp) {
             return Ok(self.build_delta(
@@ -541,7 +895,9 @@ impl SessionEngine {
         if line_completed {
             sound = KeySoundKind::LineComplete;
         }
-        let updated_stats = if line_completed || newly_unlocked.is_some() {
+        let updated_stats = if (line_completed || newly_unlocked.is_some())
+            && matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill)
+        {
             self.storage.upsert_key_stats(&self.key_stats)?;
             if newly_unlocked.is_some() {
                 self.reachable_keys =
@@ -568,7 +924,7 @@ impl SessionEngine {
             return Err(AksharError::SessionNotActive);
         }
         self.active = false;
-        if self.mode != PracticeMode::Exam {
+        if matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill) {
             self.storage.upsert_key_stats(&self.key_stats)?;
         }
         let snapshot = self.metrics.snapshot(None);
@@ -620,6 +976,7 @@ impl SessionEngine {
         };
         let unlocked_count = stats.iter().filter(|s| s.unlocked).count() as u32;
         let total_keys = stats.len() as u32;
+        let roadmap = self.get_jungle_roadmap(layout)?;
 
         Ok(AnalyticsSnapshot {
             layout,
@@ -631,6 +988,10 @@ impl SessionEngine {
             avg_accuracy,
             unlocked_count,
             total_keys,
+            jungle_earned_stars: roadmap.total_earned_stars,
+            jungle_max_stars: roadmap.total_max_stars,
+            jungle_completed_lessons: roadmap.completed_lessons,
+            jungle_total_lessons: roadmap.total_lessons,
         })
     }
 
@@ -740,8 +1101,8 @@ impl SessionEngine {
         latency_ms: Option<f64>,
         is_correct: bool,
     ) -> Option<UnlockedKeyEvent> {
-        // Exam mode evaluates passages across locked/unlocked keys without mutating adaptive progression.
-        if self.mode == PracticeMode::Exam {
+        // Keep Smart Adaptive unlock progression isolated from Exam, Jungle, and Mini-Game runs.
+        if !matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill) {
             return None;
         }
         let key_id = expected_key_id?;
@@ -811,7 +1172,7 @@ impl SessionEngine {
             self.active_typed.clear();
         }
 
-        if self.mode != PracticeMode::Exam {
+        if matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill) {
             self.storage.upsert_key_stats(&self.key_stats)?;
         }
         self.recount_uncorrected_errors();
@@ -823,7 +1184,9 @@ impl SessionEngine {
         } else {
             KeySoundKind::Error
         };
-        let updated_stats = if line_completed && self.mode != PracticeMode::Exam {
+        let updated_stats = if line_completed
+            && matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill)
+        {
             Some(self.key_stats.clone())
         } else {
             None
@@ -908,7 +1271,13 @@ impl SessionEngine {
             return Ok((false, None));
         }
 
-        if self.mode != PracticeMode::Exam {
+        // Jungle lessons end once the lesson text finishes instead of rolling over infinitely.
+        if self.mode == PracticeMode::Jungle {
+            self.lines_completed += 1;
+            return Ok((true, None));
+        }
+
+        if matches!(self.mode, PracticeMode::Adaptive | PracticeMode::WeakDrill) {
             let snap = self.metrics.snapshot(Some(timestamp_ms));
             let suffix = format!("l{}", self.line_index);
             self.persist_session_record(&snap, &suffix)?;
@@ -971,6 +1340,11 @@ impl SessionEngine {
                 )
                 .or_else(|_| self.corpus.sample_words(self.layout, self.words_per_line, &mut r))?,
                 PracticeMode::Exam => self.next_exam_chunk(),
+                PracticeMode::Jungle | PracticeMode::MiniGame => self
+                    .active_lesson
+                    .as_ref()
+                    .map(|l| l.words.clone())
+                    .unwrap_or_default(),
             },
         };
         let joined = words.join(" ");
@@ -1059,6 +1433,30 @@ impl SessionEngine {
             next_line,
             newly_unlocked_key,
             updated_key_stats,
+        }
+    }
+}
+
+fn map_with_layout(
+    layout: LayoutKind,
+    key: PhysicalKey,
+    event: &KeyInputEvent,
+    current_buffer: &str,
+    remington_ime: &mut RemingtonIme,
+) -> (MappedKeyAction, String) {
+    match layout {
+        LayoutKind::EnQwerty => {
+            let act = qwerty::map_key(key, event.shift, event.caps_lock);
+            let next = apply_action_to_buffer(current_buffer, &act);
+            (act, next)
+        }
+        LayoutKind::HiInscript => {
+            let act = inscript::map_key(key, event.shift, event.alt_gr);
+            let next = apply_action_to_buffer(current_buffer, &act);
+            (act, next)
+        }
+        LayoutKind::HiRemingtonGail => {
+            remington_ime.process_key(key, event.shift, event.alt_gr, current_buffer)
         }
     }
 }

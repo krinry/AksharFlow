@@ -2,7 +2,8 @@ export interface Dictionary {
   appName: string;
   tagline: string;
   nav: {
-    practice: string;
+    jungle: string;
+    adaptive: string;
     exam: string;
     analytics: string;
   };
@@ -37,6 +38,7 @@ export interface Dictionary {
     withAltGr: string;
     weakDrillActive: string;
     exitDrill: string;
+    restartLesson: string;
   };
   adaptive: {
     unlockedKeys: string;
@@ -82,6 +84,9 @@ export interface Dictionary {
     noData: string;
     noWeakData: string;
     attempts: string;
+    jungleProgressTitle: string;
+    starsEarned: string;
+    lessonsCompleted: string;
   };
   settings: {
     title: string;
@@ -125,13 +130,73 @@ export interface Dictionary {
     light: string;
     dark: string;
   };
+  jungle: {
+    title: string;
+    subtitle: string;
+    allStages: string;
+    stages: {
+      home_row: string;
+      top_row_and_matras: string;
+      bottom_row_and_conjuncts: string;
+      shift_numbers_and_symbols: string;
+      fluency_and_stories: string;
+    };
+    kinds: {
+      key_intro: string;
+      drill: string;
+      words: string;
+      sentences: string;
+      review_challenge: string;
+      mini_game: string;
+    };
+    unitLabel: string;
+    lessonLabel: string;
+    starsLabel: string;
+    unlocked: string;
+    locked: string;
+    lockedHint: string;
+    continueNext: string;
+    backToMap: string;
+    focusKeys: string;
+    targetGoal: string;
+    attemptsLabel: string;
+    loading: string;
+    loadError: string;
+    retryLoad: string;
+    emptyUnits: string;
+    completeTitle: string;
+    passedBadge: string;
+    needThreeStars: string;
+    newBest: string;
+    yourResult: string;
+    targetLabel: string;
+    retry: string;
+    nextLesson: string;
+    game: {
+      title: string;
+      instructions: string;
+      score: string;
+      lives: string;
+      popped: string;
+      missed: string;
+      activeTarget: string;
+      typingBuffer: string;
+      pause: string;
+      resume: string;
+      restart: string;
+      switchHint: string;
+      calmMotionNote: string;
+      finishWave: string;
+    };
+  };
 }
 
 export const en: Dictionary = {
   appName: "AksharFlow",
   tagline: "Offline-First Adaptive Typing Studio",
   nav: {
-    practice: "Practice",
+    jungle: "Jungle Journey",
+    adaptive: "Smart Adaptive",
     exam: "Exam Mode",
     analytics: "Analytics",
   },
@@ -166,6 +231,7 @@ export const en: Dictionary = {
     withAltGr: "AltGr",
     weakDrillActive: "Weak-Key Drill",
     exitDrill: "Return to Adaptive",
+    restartLesson: "Restart Lesson",
   },
   adaptive: {
     unlockedKeys: "Unlocked",
@@ -192,7 +258,7 @@ export const en: Dictionary = {
     cancel: "Cancel",
     reportTitle: "Exam Scorecard",
     retryExam: "Retry Passage",
-    backToPractice: "Back to Practice",
+    backToPractice: "Back to Smart Adaptive",
     keystrokes: "Keystrokes",
     linesDone: "Chunks Done",
   },
@@ -211,6 +277,9 @@ export const en: Dictionary = {
     noData: "Complete a line or exam session to view your WPM trend.",
     noWeakData: "Type a few words first to rank your slowest or error-prone keys.",
     attempts: "hits",
+    jungleProgressTitle: "Jungle Journey Mastery",
+    starsEarned: "Stars Earned",
+    lessonsCompleted: "Lessons Cleared",
   },
   settings: {
     title: "Adaptive Engine & Backup",
@@ -253,5 +322,64 @@ export const en: Dictionary = {
   theme: {
     light: "Light",
     dark: "Dark",
+  },
+  jungle: {
+    title: "Jungle Journey",
+    subtitle: "700 structured lessons across 28 progressive units",
+    allStages: "All 28 Units",
+    stages: {
+      home_row: "Home Row (1-4)",
+      top_row_and_matras: "Top Row & Matras (5-10)",
+      bottom_row_and_conjuncts: "Bottom & Conjuncts (11-16)",
+      shift_numbers_and_symbols: "Shift & Numbers (17-22)",
+      fluency_and_stories: "Fluency & Stories (23-28)",
+    },
+    kinds: {
+      key_intro: "Key Intro",
+      drill: "Rhythm Drill",
+      words: "Word Builder",
+      sentences: "Sentences",
+      review_challenge: "Unit Boss",
+      mini_game: "Balloon Game",
+    },
+    unitLabel: "Unit",
+    lessonLabel: "Lesson",
+    starsLabel: "Stars",
+    unlocked: "Unlocked",
+    locked: "Locked",
+    lockedHint: "Earn 3+ stars in the previous lesson to unlock this step.",
+    continueNext: "Continue Next",
+    backToMap: "Back to Map",
+    focusKeys: "Focus Keys",
+    targetGoal: "Target",
+    attemptsLabel: "Attempts",
+    loading: "Loading 700-lesson curriculum...",
+    loadError: "Could not load curriculum roadmap.",
+    retryLoad: "Retry",
+    emptyUnits: "No units match this stage filter.",
+    completeTitle: "Lesson Complete",
+    passedBadge: "Next lesson unlocked",
+    needThreeStars: "Reach 3 stars (75%+ accuracy and steady speed) to unlock the next lesson.",
+    newBest: "New personal best",
+    yourResult: "Your Score",
+    targetLabel: "Target",
+    retry: "Retry Lesson",
+    nextLesson: "Next Lesson",
+    game: {
+      title: "Balloon Pop Wave",
+      instructions: "Type falling words before they pass the jungle floor. Every keystroke uses your active layout engine.",
+      score: "Score",
+      lives: "Lives",
+      popped: "Popped",
+      missed: "Missed",
+      activeTarget: "Locked Target",
+      typingBuffer: "Input Buffer",
+      pause: "Pause",
+      resume: "Resume",
+      restart: "Restart Wave",
+      switchHint: "Press Esc to unlock target, Space to flush short-i in Remington",
+      calmMotionNote: "Calm motion enabled",
+      finishWave: "Finish & Score",
+    },
   },
 };
