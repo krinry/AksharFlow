@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Flame } from "lucide-react";
 import { getDictionary } from "@/i18n/useTranslation";
 import type { FingerId, KeycapDescriptor_Serialize } from "@/lib/bindings";
 import { useTypingStore } from "@/stores/useTypingStore";
@@ -18,6 +19,7 @@ const FINGER_BORDER: Record<FingerId, string> = {
 
 export function VirtualKeyboard() {
   const keycaps = useTypingStore((s) => s.keycaps);
+  const keyStats = useTypingStore((s) => s.keyStats);
   const layout = useTypingStore((s) => s.layout);
   const uiLang = useTypingStore((s) => s.uiLang);
   const nextKeyHint = useTypingStore((s) => s.nextKeyHint);
@@ -26,7 +28,9 @@ export function VirtualKeyboard() {
   const touchShift = useTypingStore((s) => s.touchShift);
   const touchAltGr = useTypingStore((s) => s.touchAltGr);
   const capsLock = useTypingStore((s) => s.capsLock);
+  const showHeatmap = useTypingStore((s) => s.showHeatmap);
   const isReady = useTypingStore((s) => s.isReady);
+  const toggleHeatmap = useTypingStore((s) => s.toggleHeatmap);
   const toggleTouchShift = useTypingStore((s) => s.toggleTouchShift);
   const toggleTouchAltGr = useTypingStore((s) => s.toggleTouchAltGr);
   const enqueueKeyInput = useTypingStore((s) => s.enqueueKeyInput);
@@ -45,6 +49,23 @@ export function VirtualKeyboard() {
     }
     return grouped;
   }, [keycaps]);
+
+  // Map physical key code + modifier state -> confidence color class for Red-to-Green Heatmap
+  const heatmapByCode = useMemo(() => {
+    const map = new Map<string, { conf: number; practiced: boolean; unlocked: boolean }>();
+    for (const stat of keyStats) {
+      if (stat.requires_shift !== effectiveShift || stat.requires_alt_gr !== effectiveAltGr) {
+        continue;
+      }
+      const practiced = stat.hits + stat.misses > 0;
+      map.set(stat.physical_code, {
+        conf: stat.confidence_score ?? 0,
+        practiced,
+        unlocked: stat.unlocked,
+      });
+    }
+    return map;
+  }, [keyStats, effectiveShift, effectiveAltGr]);
 
   const dispatchVirtualKey = (code: string) => {
     if (!isReady) return;
@@ -87,7 +108,23 @@ export function VirtualKeyboard() {
             <span>{t.typing.touchModeHint}</span>
           )}
         </div>
-        <span className="hidden text-[11px] sm:inline">{t.typing.touchModeHint}</span>
+
+        <div className="flex items-center gap-3">
+          <span className="hidden text-[11px] sm:inline">{t.typing.touchModeHint}</span>
+          <button
+            type="button"
+            onClick={toggleHeatmap}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer",
+              showHeatmap
+                ? "border-primary/45 bg-primary/15 text-primary"
+                : "border-border bg-background text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Flame className="h-3 w-3" />
+            {t.adaptive.heatmap}
+          </button>
+        </div>
       </div>
 
       <div className="mx-auto flex max-w-[820px] flex-col gap-1.5 select-none">
@@ -112,6 +149,15 @@ export function VirtualKeyboard() {
                 !effectiveShift && !effectiveAltGr && cap.shift_label !== cap.normal_label
                   ? cap.shift_label
                   : null;
+              const heat = showHeatmap ? heatmapByCode.get(cap.code) : undefined;
+              const heatClass =
+                heat && heat.unlocked && heat.practiced
+                  ? heat.conf >= 85
+                    ? "bg-emerald-500/14 border-emerald-500/40"
+                    : heat.conf >= 60
+                      ? "bg-amber-500/14 border-amber-500/40"
+                      : "bg-rose-500/16 border-rose-500/45"
+                  : "";
 
               return (
                 <button
@@ -127,7 +173,7 @@ export function VirtualKeyboard() {
                     FINGER_BORDER[cap.finger],
                     isTarget
                       ? "border-primary bg-primary/20 text-primary shadow-xs ring-2 ring-primary/40"
-                      : "border-border bg-background/85 text-foreground hover:bg-muted",
+                      : cn("border-border bg-background/85 text-foreground hover:bg-muted", heatClass),
                   )}
                 >
                   {subLegend && cap.code !== "Backspace" && (
@@ -159,7 +205,6 @@ export function VirtualKeyboard() {
           </div>
         ))}
 
-        {/* Bottom row: Spacebar + Touch AltGr */}
         <div className="flex justify-center gap-1.5">
           {rows[4]?.[0] && (
             <button

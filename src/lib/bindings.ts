@@ -5,17 +5,113 @@ import type { InvokeOptions } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**  Starts a fresh typing session and returns the initial full snapshot for the line. */
-	startSession: (layout: LayoutKind, wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<SessionSnapshot_Serialize>("start_session", { layout, wordsPerLine }, options),
+	/**  Loads persisted settings, per-key stats, recent sessions, and starts the initial adaptive line. */
+	getBootstrapState: (wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("get_bootstrap_state", { wordsPerLine }, options),
+	/**  Starts or switches to an adaptive typing session for `layout` and returns the bootstrap snapshot. */
+	startSession: (layout: LayoutKind, wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("start_session", { layout, wordsPerLine }, options),
 	/**  Processes a physical or touch-keyboard key event and returns only a lightweight state delta. */
 	processKeyEvent: (event: KeyInputEvent, options?: InvokeOptions) => __TAURI_INVOKE<KeyEventDelta_Serialize>("process_key_event", { event }, options),
-	/**  Ends the active typing session and returns summary metrics. */
+	/**  Ends the active typing session, persists summary telemetry, and returns metrics. */
 	finishSession: (options?: InvokeOptions) => __TAURI_INVOKE<SessionSummary>("finish_session", undefined, options),
+	/**  Returns per-key accuracy/latency telemetry and recent session history for `layout`. */
+	getAnalytics: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<AnalyticsSnapshot_Serialize>("get_analytics", { layout }, options),
+	/**  Persists updated settings and recomputes per-key confidence scores. */
+	updateSettings: (settings: AppSettings, options?: InvokeOptions) => __TAURI_INVOKE<AppSettings>("update_settings", { settings }, options),
+	/**  Exports settings, key stats, sessions, and custom passages as JSON to `path`. */
+	exportBackupFile: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<ExportResult>("export_backup_file", { path }, options),
+	/**  Imports and validates a `.json` backup file (`replace = true` overwrites, `false` merges). */
+	importBackupFile: (path: string, replace: boolean, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("import_backup_file", { path, replace }, options),
+	/**  Resets unlocked keys and telemetry for `layout` back to Home Row. */
+	resetLayoutProgress: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("reset_layout_progress", { layout }, options),
+	/**  Saves a custom practice/exam passage to SQLite. */
+	saveCustomPassage: (title: string, language: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<CustomPassage>("save_custom_passage", { title, language, content }, options),
+	/**  Lists saved custom passages. */
+	listCustomPassages: (options?: InvokeOptions) => __TAURI_INVOKE<CustomPassage[]>("list_custom_passages", undefined, options),
 	/**  Returns virtual keyboard keycap descriptors for the requested layout. */
 	getLayoutKeycaps: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<KeycapDescriptor_Serialize[]>("get_layout_keycaps", { layout }, options),
 };
 
 /* Types */
+/**  Aggregate analytics payload for a layout. */
+export type AnalyticsSnapshot = AnalyticsSnapshot_Serialize | AnalyticsSnapshot_Deserialize;
+
+/**  Aggregate analytics payload for a layout. */
+export type AnalyticsSnapshot_Deserialize = {
+	layout: LayoutKind,
+	key_stats: KeyStatRecord_Deserialize[],
+	recent_sessions: SessionRecord[],
+	total_sessions: number,
+	avg_net_wpm: number | null,
+	best_net_wpm: number | null,
+	avg_accuracy: number | null,
+	unlocked_count: number,
+	total_keys: number,
+};
+
+/**  Aggregate analytics payload for a layout. */
+export type AnalyticsSnapshot_Serialize = {
+	layout: LayoutKind,
+	key_stats: KeyStatRecord_Serialize[],
+	recent_sessions: SessionRecord[],
+	total_sessions: number,
+	avg_net_wpm: number | null,
+	best_net_wpm: number | null,
+	avg_accuracy: number | null,
+	unlocked_count: number,
+	total_keys: number,
+};
+
+/**  Persisted application & adaptive learning preferences. */
+export type AppSettings = {
+	ui_lang: string,
+	theme: string,
+	sound_profile: string,
+	sound_volume: number | null,
+	active_layout: LayoutKind,
+	target_wpm: number | null,
+	target_accuracy: number | null,
+	unlock_threshold: number | null,
+	zen_mode: boolean,
+	updated_at: string,
+};
+
+/**  Full bootstrap payload sent on app launch, layout switch, backup import, or progress reset. */
+export type BootstrapSnapshot = BootstrapSnapshot_Serialize | BootstrapSnapshot_Deserialize;
+
+/**  Full bootstrap payload sent on app launch, layout switch, backup import, or progress reset. */
+export type BootstrapSnapshot_Deserialize = {
+	settings: AppSettings,
+	session: SessionSnapshot_Deserialize,
+	key_stats: KeyStatRecord_Deserialize[],
+	recent_sessions: SessionRecord[],
+};
+
+/**  Full bootstrap payload sent on app launch, layout switch, backup import, or progress reset. */
+export type BootstrapSnapshot_Serialize = {
+	settings: AppSettings,
+	session: SessionSnapshot_Serialize,
+	key_stats: KeyStatRecord_Serialize[],
+	recent_sessions: SessionRecord[],
+};
+
+/**  User-saved custom practice or exam passage. */
+export type CustomPassage = {
+	id: string,
+	language: string,
+	title: string,
+	content: string,
+	created_at: string,
+};
+
+/**  Summary returned after exporting a `.json` backup file. */
+export type ExportResult = {
+	path: string,
+	exported_at: string,
+	key_stats_count: number,
+	sessions_count: number,
+	passages_count: number,
+};
+
 /**  Touch-typing finger assignment for the Virtual Keyboard & Finger Guide. */
 export type FingerId = "left_pinky" | "left_ring" | "left_middle" | "left_index" | "thumb" | "right_index" | "right_middle" | "right_ring" | "right_pinky";
 
@@ -44,6 +140,8 @@ export type KeyEventDelta_Deserialize = {
 	sound_kind: KeySoundKind,
 	line_completed: boolean,
 	next_line?: LineRolloverPayload | null,
+	newly_unlocked_key?: UnlockedKeyEvent | null,
+	updated_key_stats?: KeyStatRecord_Deserialize[] | null,
 };
 
 /**  Lightweight per-keystroke state delta (Safeguard #1) to avoid re-serializing the full line. */
@@ -59,6 +157,8 @@ export type KeyEventDelta_Serialize = {
 	sound_kind: KeySoundKind,
 	line_completed: boolean,
 	next_line: LineRolloverPayload | null,
+	newly_unlocked_key: UnlockedKeyEvent | null,
+	updated_key_stats: KeyStatRecord_Serialize[] | null,
 };
 
 /**  Incoming hardware or touch-keyboard key event sent by the UI. */
@@ -73,6 +173,45 @@ export type KeyInputEvent = {
 
 /**  Audio feedback cue attached to `KeyEventDelta` so UI sound playback requires zero parsing. */
 export type KeySoundKind = "none" | "tap" | "error" | "space" | "backspace" | "line_complete";
+
+/**  Persisted per-key telemetry and unlock state for a layout. */
+export type KeyStatRecord = KeyStatRecord_Serialize | KeyStatRecord_Deserialize;
+
+/**  Persisted per-key telemetry and unlock state for a layout. */
+export type KeyStatRecord_Deserialize = {
+	layout: LayoutKind,
+	key_id: string,
+	physical_code: string,
+	requires_shift: boolean,
+	requires_alt_gr: boolean,
+	unlock_order: number,
+	unlocked: boolean,
+	hits: number,
+	misses: number,
+	ema_latency_ms: number | null,
+	confidence_score: number | null,
+	weakness_weight: number | null,
+	last_practiced_at?: string | null,
+	updated_at: string,
+};
+
+/**  Persisted per-key telemetry and unlock state for a layout. */
+export type KeyStatRecord_Serialize = {
+	layout: LayoutKind,
+	key_id: string,
+	physical_code: string,
+	requires_shift: boolean,
+	requires_alt_gr: boolean,
+	unlock_order: number,
+	unlocked: boolean,
+	hits: number,
+	misses: number,
+	ema_latency_ms: number | null,
+	confidence_score: number | null,
+	weakness_weight: number | null,
+	last_practiced_at: string | null,
+	updated_at: string,
+};
 
 /**  Metadata for a single keycap on the interactive Virtual Keyboard. */
 export type KeycapDescriptor = KeycapDescriptor_Serialize | KeycapDescriptor_Deserialize;
@@ -130,6 +269,22 @@ export type NextKeyHint = {
 	expected_label: string,
 };
 
+/**  Persisted completed typing session summary row. */
+export type SessionRecord = {
+	id: string,
+	layout: LayoutKind,
+	mode: string,
+	duration_ms: number,
+	gross_wpm: number | null,
+	net_wpm: number | null,
+	kph: number | null,
+	accuracy: number | null,
+	consistency: number | null,
+	total_chars: number,
+	errors: number,
+	created_at: string,
+};
+
 /**  Initial state snapshot sent once when starting or restarting a session. */
 export type SessionSnapshot = SessionSnapshot_Serialize | SessionSnapshot_Deserialize;
 
@@ -161,4 +316,16 @@ export type SessionSummary = {
 	layout: LayoutKind,
 	lines_completed: number,
 	metrics: LiveMetrics,
+};
+
+/**  Toast/UI notification payload emitted when a learner unlocks a new key. */
+export type UnlockedKeyEvent = {
+	layout: LayoutKind,
+	key_id: string,
+	physical_code: string,
+	requires_shift: boolean,
+	requires_alt_gr: boolean,
+	finger: FingerId,
+	unlock_order: number,
+	total_keys: number,
 };

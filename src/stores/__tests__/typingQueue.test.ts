@@ -31,6 +31,8 @@ function makeSnapshot(graphemes: string[]): SessionSnapshot_Serialize {
       sound_kind: "none",
       line_completed: false,
       next_line: null,
+      newly_unlocked_key: null,
+      updated_key_stats: null,
     },
   };
 }
@@ -57,20 +59,21 @@ function makeDelta(index: number, committedIndex: number): KeyEventDelta_Seriali
     sound_kind: "none",
     line_completed: false,
     next_line: null,
+    newly_unlocked_key: null,
+    updated_key_stats: null,
   };
 }
 
-describe("useTypingStore safeguards", () => {
+describe("useTypingStore safeguards & adaptive state", () => {
   beforeEach(() => {
     resetKeyQueueForTest();
     useTypingStore.getState().applySnapshot(makeSnapshot(["a", "b", "c"]));
-    useTypingStore.setState({ soundProfile: "off" });
+    useTypingStore.setState({ soundProfile: "off", unlockedToast: null, keyStats: [] });
   });
 
   it("serializes rapid keystrokes strictly in FIFO order", async () => {
     const order: string[] = [];
     vi.spyOn(commands, "processKeyEvent").mockImplementation(async (evt) => {
-      // Delay first key longer than second key to prove FIFO serialization
       if (evt.code === "KeyA") {
         await new Promise((r) => setTimeout(r, 25));
       }
@@ -101,10 +104,44 @@ describe("useTypingStore safeguards", () => {
     expect(useTypingStore.getState().graphemeIndex).toBe(2);
   });
 
-  it("patches only updated indices on lightweight delta and resets on rollover", () => {
+  it("patches only updated indices on lightweight delta, handles unlock toast, and resets on rollover", () => {
     const store = useTypingStore.getState();
     store.applyDelta(makeDelta(1, 0));
     expect(useTypingStore.getState().statuses).toEqual(["matched", "pending", "pending"]);
+
+    store.applyDelta({
+      ...makeDelta(2, 1),
+      newly_unlocked_key: {
+        layout: "en_qwerty",
+        key_id: "e",
+        physical_code: "KeyE",
+        requires_shift: false,
+        requires_alt_gr: false,
+        finger: "left_middle",
+        unlock_order: 7,
+        total_keys: 26,
+      },
+      updated_key_stats: [
+        {
+          layout: "en_qwerty",
+          key_id: "e",
+          physical_code: "KeyE",
+          requires_shift: false,
+          requires_alt_gr: false,
+          unlock_order: 7,
+          unlocked: true,
+          hits: 0,
+          misses: 0,
+          ema_latency_ms: 0,
+          confidence_score: 0,
+          weakness_weight: 1,
+          last_practiced_at: null,
+          updated_at: "2026-11-25T16:00:00Z",
+        },
+      ],
+    });
+    expect(useTypingStore.getState().unlockedToast?.key_id).toBe("e");
+    expect(useTypingStore.getState().keyStats).toHaveLength(1);
 
     store.applyDelta({
       ...makeDelta(0, 0),

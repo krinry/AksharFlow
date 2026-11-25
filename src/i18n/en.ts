@@ -30,6 +30,30 @@ export interface Dictionary {
     withShift: string;
     withAltGr: string;
   };
+  adaptive: {
+    unlockedKeys: string;
+    weakFocus: string;
+    keyUnlockedTitle: string;
+    confidenceLabel: string;
+    heatmap: string;
+  };
+  settings: {
+    title: string;
+    close: string;
+    targetWpm: string;
+    targetAccuracy: string;
+    unlockThreshold: string;
+    volume: string;
+    backupTitle: string;
+    exportJson: string;
+    importMerge: string;
+    importReplace: string;
+    resetLayout: string;
+    confirmReset: string;
+    exportSuccess: string;
+    importSuccess: string;
+    resetSuccess: string;
+  };
   sound: {
     label: string;
     off: string;
@@ -86,6 +110,30 @@ export const en: Dictionary = {
     nextKey: "Next",
     withShift: "Shift",
     withAltGr: "AltGr",
+  },
+  adaptive: {
+    unlockedKeys: "Unlocked",
+    weakFocus: "Focus",
+    keyUnlockedTitle: "New Key Unlocked",
+    confidenceLabel: "Confidence",
+    heatmap: "Heatmap",
+  },
+  settings: {
+    title: "Adaptive Engine & Backup",
+    close: "Close",
+    targetWpm: "Target Speed (WPM)",
+    targetAccuracy: "Min Accuracy (%)",
+    unlockThreshold: "Unlock Confidence (%)",
+    volume: "Audio Volume",
+    backupTitle: "Local Backup & Progress (.json)",
+    exportJson: "Export Progress (.json)",
+    importMerge: "Import & Merge",
+    importReplace: "Import & Replace",
+    resetLayout: "Reset Current Layout",
+    confirmReset: "Click again to confirm reset",
+    exportSuccess: "Backup exported successfully.",
+    importSuccess: "Backup restored into local database.",
+    resetSuccess: "Layout progress reset to Home Row.",
   },
   sound: {
     label: "Switch Audio",

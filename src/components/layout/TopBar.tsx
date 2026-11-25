@@ -1,4 +1,4 @@
-import { Globe, Keyboard, Maximize2, Minimize2, Moon, Sun, Volume2, VolumeX } from "lucide-react";
+import { Globe, Keyboard, Maximize2, Minimize2, Moon, SlidersHorizontal, Sun, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LayoutKind } from "@/lib/bindings";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -20,6 +20,7 @@ export function TopBar() {
   const toggleTheme = useTypingStore((s) => s.toggleTheme);
   const setSoundProfile = useTypingStore((s) => s.setSoundProfile);
   const toggleZenMode = useTypingStore((s) => s.toggleZenMode);
+  const setSettingsModalOpen = useTypingStore((s) => s.setSettingsModalOpen);
 
   const t = getDictionary(uiLang);
 
@@ -108,6 +109,15 @@ export function TopBar() {
           title={theme === "dark" ? t.theme.light : t.theme.dark}
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => setSettingsModalOpen(true)}
+          title={t.settings.title}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
         </Button>
 
         <Button variant="outline" size="sm" onClick={toggleZenMode}>
