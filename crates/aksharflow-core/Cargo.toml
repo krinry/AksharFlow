@@ -1,0 +1,21 @@
+[package]
+name = "aksharflow-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UI-agnostic typing tutor, Hindi IME, grapheme matcher, adaptive engine, and SQLite storage for AksharFlow"
+
+[features]
+default = []
+specta-types = ["dep:specta"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-normalization = { workspace = true }
+rusqlite = { workspace = true }
+specta = { workspace = true, optional = true }

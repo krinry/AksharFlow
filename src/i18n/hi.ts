@@ -1,0 +1,58 @@
+import type { Dictionary } from "./en";
+
+export const hi: Dictionary = {
+  appName: "अक्षर-फ्लो",
+  tagline: "ऑफ़लाइन एडैप्टिव टाइपिंग स्टूडियो",
+  layouts: {
+    en_qwerty: "English · QWERTY",
+    hi_inscript: "हिंदी · इनस्क्रिप्ट",
+    hi_remington_gail: "हिंदी · रेमिंगटन गेल",
+  },
+  metrics: {
+    wpm: "गति (WPM)",
+    netWpm: "नेट गति",
+    grossWpm: "ग्रॉस",
+    accuracy: "शुद्धता",
+    consistency: "लय",
+    errors: "गलतियाँ",
+    line: "पंक्ति",
+    time: "समय",
+  },
+  typing: {
+    focusPrompt: "शुरू करने के लिए यहाँ क्लिक करें या टाइप करें",
+    capsLockOn: "CapsLock चालू",
+    capsLockHindiHint: "हिंदी लेआउट में अनदेखा",
+    pendingShortI: "बकाया ि",
+    restart: "नई पंक्ति",
+    restartShortcut: "Tab + Enter",
+    zenMode: "फ़ोकस मोड",
+    exitZen: "फ़ोकस बंद",
+    touchModeHint: "टाइप करने के लिए नीचे कुंजी दबाएं",
+    nextKey: "अगला",
+    withShift: "Shift",
+    withAltGr: "AltGr",
+  },
+  sound: {
+    label: "कीबोर्ड ध्वनि",
+    off: "बंद",
+    blue: "क्लिकी ब्लू",
+    brown: "टैक्टाइल ब्राउन",
+    red: "लीनियर रेड",
+    topre: "टॉपरे थॉक",
+  },
+  fingers: {
+    left_pinky: "बायाँ कनिष्ठा",
+    left_ring: "बायाँ अनामिका",
+    left_middle: "बायाँ मध्यमा",
+    left_index: "बायाँ तर्जनी",
+    thumb: "अंगूठा",
+    right_index: "दायाँ तर्जनी",
+    right_middle: "दायाँ मध्यमा",
+    right_ring: "दायाँ अनामिका",
+    right_pinky: "दायाँ कनिष्ठा",
+  },
+  theme: {
+    light: "लाइट",
+    dark: "डार्क",
+  },
+};
