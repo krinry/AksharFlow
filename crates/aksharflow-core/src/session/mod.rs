@@ -6,10 +6,10 @@ use rand::rng;
 use serde::{Deserialize, Serialize};
 
 use crate::adaptive::{
-    UnlockedKeyEvent, generate_adaptive_line, primary_key_id_for_target, reachable_unlocked_keys,
-    reconcile_key_stats, record_telemetry_and_check_unlock,
+    UnlockedKeyEvent, generate_adaptive_line, generate_weak_drill_line, primary_key_id_for_target,
+    reachable_unlocked_keys, reconcile_key_stats, record_telemetry_and_check_unlock,
 };
-use crate::corpus::Corpus;
+use crate::corpus::{Corpus, ExamPassage};
 use crate::error::AksharError;
 use crate::grapheme::{GraphemeMatch, GraphemeStatus, GraphemeUpdate, evaluate_grapheme, split_graphemes};
 use crate::keymap::remington_gail::RemingtonIme;
@@ -23,6 +23,27 @@ use crate::storage::{
 };
 
 const DEFAULT_WORDS_PER_LINE: usize = 18;
+const EXAM_WORDS_PER_CHUNK: usize = 24;
+
+/// Active training mode inside `SessionEngine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta-types", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum PracticeMode {
+    Adaptive,
+    WeakDrill,
+    Exam,
+}
+
+impl PracticeMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Adaptive => "adaptive",
+            Self::WeakDrill => "weak_drill",
+            Self::Exam => "exam",
+        }
+    }
+}
 
 /// Audio feedback cue attached to `KeyEventDelta` so UI sound playback requires zero parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +73,9 @@ pub struct LineRolloverPayload {
 pub struct SessionSnapshot {
     pub session_id: String,
     pub layout: LayoutKind,
+    pub mode: PracticeMode,
+    pub allow_backspace: bool,
+    pub exam_duration_secs: Option<u32>,
     pub line_index: u32,
     pub words: Vec<String>,
     pub graphemes: Vec<String>,
@@ -114,12 +138,13 @@ pub struct KeyEventDelta {
     pub updated_key_stats: Option<Vec<KeyStatRecord>>,
 }
 
-/// Final summary returned when ending a session.
+/// Final summary returned when ending a session or exam.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta-types", derive(specta::Type))]
 pub struct SessionSummary {
     pub session_id: String,
     pub layout: LayoutKind,
+    pub mode: PracticeMode,
     pub lines_completed: u32,
     pub metrics: LiveMetrics,
 }
@@ -133,6 +158,12 @@ pub struct SessionEngine {
     reachable_keys: HashSet<String>,
     session_id: String,
     layout: LayoutKind,
+    mode: PracticeMode,
+    allow_backspace: bool,
+    exam_duration_secs: Option<u32>,
+    exam_words: Vec<String>,
+    exam_cursor: usize,
+    drill_focus_keys: Vec<String>,
     words_per_line: usize,
     line_index: u32,
     lines_completed: u32,
@@ -145,8 +176,6 @@ pub struct SessionEngine {
     remington_ime: RemingtonIme,
     metrics: MetricsTracker,
     last_key_ts_ms: Option<f64>,
-    line_metrics_start_ms: Option<f64>,
-    adaptive_mode: bool,
     active: bool,
 }
 
@@ -181,6 +210,12 @@ impl SessionEngine {
             reachable_keys,
             session_id: String::new(),
             layout,
+            mode: PracticeMode::Adaptive,
+            allow_backspace: true,
+            exam_duration_secs: None,
+            exam_words: Vec::new(),
+            exam_cursor: 0,
+            drill_focus_keys: Vec::new(),
             words_per_line: DEFAULT_WORDS_PER_LINE,
             line_index: 0,
             lines_completed: 0,
@@ -193,8 +228,6 @@ impl SessionEngine {
             remington_ime: RemingtonIme::new(),
             metrics: MetricsTracker::new(),
             last_key_ts_ms: None,
-            line_metrics_start_ms: None,
-            adaptive_mode: true,
             active: false,
         })
     }
@@ -230,38 +263,58 @@ impl SessionEngine {
         words_per_line: Option<usize>,
     ) -> Result<SessionSnapshot, AksharError> {
         let count = words_per_line.unwrap_or(DEFAULT_WORDS_PER_LINE).clamp(5, 40);
-        if self.settings.active_layout != layout {
-            self.settings.active_layout = layout;
-            self.settings = self.storage.save_settings(&self.settings)?;
-        }
-        self.layout = layout;
-        self.adaptive_mode = true;
-        self.words_per_line = count;
-        self.line_index = 0;
-        self.lines_completed = 0;
-        self.session_id = format!("af-{}", Utc::now().timestamp_millis());
-        self.metrics.reset();
-        self.last_key_ts_ms = None;
-        self.line_metrics_start_ms = None;
-        self.active = true;
-
-        let persisted = self.storage.load_key_stats(layout)?;
-        self.key_stats = reconcile_key_stats(layout, persisted);
-        self.storage.upsert_key_stats(&self.key_stats)?;
-        self.reachable_keys = reachable_unlocked_keys(layout, &self.key_stats, &self.corpus);
-
+        self.reset_session_shell(layout, PracticeMode::Adaptive, true, None, count)?;
         self.load_next_line_words(None)?;
+        Ok(self.build_snapshot())
+    }
 
-        let delta = self.build_delta(Vec::new(), KeySoundKind::None, false, None, None, None, None);
-        Ok(SessionSnapshot {
-            session_id: self.session_id.clone(),
-            layout: self.layout,
-            line_index: self.line_index,
-            words: self.words.clone(),
-            graphemes: self.graphemes.clone(),
-            keycaps: layout_keycaps(self.layout),
-            delta,
+    /// Starts a targeted drill session prioritizing `focus_key_ids` (triggered from Analytics).
+    pub fn start_weak_key_drill(
+        &mut self,
+        layout: LayoutKind,
+        focus_key_ids: Vec<String>,
+        words_per_line: Option<usize>,
+    ) -> Result<BootstrapSnapshot, AksharError> {
+        let count = words_per_line.unwrap_or(DEFAULT_WORDS_PER_LINE).clamp(5, 40);
+        self.drill_focus_keys = focus_key_ids;
+        self.reset_session_shell(layout, PracticeMode::WeakDrill, true, None, count)?;
+        self.load_next_line_words(None)?;
+        let session = self.build_snapshot();
+        let recent_sessions = self.storage.list_typing_sessions(Some(self.layout), 30)?;
+        Ok(BootstrapSnapshot {
+            settings: self.settings.clone(),
+            session,
+            key_stats: self.key_stats.clone(),
+            recent_sessions,
         })
+    }
+
+    /// Starts a timed Exam / Paragraph simulation (CPCT / SSC style) over `passage_content`.
+    pub fn start_exam_session(
+        &mut self,
+        layout: LayoutKind,
+        passage_content: String,
+        duration_secs: u32,
+        allow_backspace: bool,
+    ) -> Result<SessionSnapshot, AksharError> {
+        let words: Vec<String> = passage_content
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        if words.is_empty() {
+            return Err(AksharError::EmptyCorpus(layout.to_string()));
+        }
+        self.exam_words = words;
+        self.exam_cursor = 0;
+        self.reset_session_shell(
+            layout,
+            PracticeMode::Exam,
+            allow_backspace,
+            Some(duration_secs.clamp(30, 3600)),
+            EXAM_WORDS_PER_CHUNK,
+        )?;
+        self.load_next_line_words(None)?;
+        Ok(self.build_snapshot())
     }
 
     /// Starts a session with explicit words (for deterministic tests or custom lines).
@@ -273,33 +326,56 @@ impl SessionEngine {
         if words.is_empty() {
             return Err(AksharError::EmptyCorpus(layout.to_string()));
         }
+        self.reset_session_shell(layout, PracticeMode::Adaptive, true, None, words.len())?;
+        self.load_next_line_words(Some(words))?;
+        Ok(self.build_snapshot())
+    }
+
+    fn reset_session_shell(
+        &mut self,
+        layout: LayoutKind,
+        mode: PracticeMode,
+        allow_backspace: bool,
+        exam_duration_secs: Option<u32>,
+        words_per_line: usize,
+    ) -> Result<(), AksharError> {
+        if self.settings.active_layout != layout {
+            self.settings.active_layout = layout;
+            self.settings = self.storage.save_settings(&self.settings)?;
+        }
         self.layout = layout;
-        self.adaptive_mode = false;
-        self.words_per_line = words.len();
+        self.mode = mode;
+        self.allow_backspace = allow_backspace;
+        self.exam_duration_secs = exam_duration_secs;
+        self.words_per_line = words_per_line;
         self.line_index = 0;
         self.lines_completed = 0;
-        self.session_id = format!("af-custom-{}", Utc::now().timestamp_millis());
+        self.session_id = format!("af-{}", Utc::now().timestamp_millis());
         self.metrics.reset();
         self.last_key_ts_ms = None;
-        self.line_metrics_start_ms = None;
         self.active = true;
 
         let persisted = self.storage.load_key_stats(layout)?;
         self.key_stats = reconcile_key_stats(layout, persisted);
+        self.storage.upsert_key_stats(&self.key_stats)?;
         self.reachable_keys = reachable_unlocked_keys(layout, &self.key_stats, &self.corpus);
+        Ok(())
+    }
 
-        self.load_next_line_words(Some(words))?;
-
+    fn build_snapshot(&self) -> SessionSnapshot {
         let delta = self.build_delta(Vec::new(), KeySoundKind::None, false, None, None, None, None);
-        Ok(SessionSnapshot {
+        SessionSnapshot {
             session_id: self.session_id.clone(),
             layout: self.layout,
+            mode: self.mode,
+            allow_backspace: self.allow_backspace,
+            exam_duration_secs: self.exam_duration_secs,
             line_index: self.line_index,
             words: self.words.clone(),
             graphemes: self.graphemes.clone(),
             keycaps: layout_keycaps(self.layout),
             delta,
-        })
+        }
     }
 
     /// Processes a single hardware or virtual-keyboard key event and returns only a lightweight delta.
@@ -312,6 +388,17 @@ impl SessionEngine {
         };
 
         if key == PhysicalKey::Backspace {
+            if !self.allow_backspace {
+                return Ok(self.build_delta(
+                    Vec::new(),
+                    KeySoundKind::Error,
+                    false,
+                    None,
+                    None,
+                    None,
+                    Some(event.timestamp_ms),
+                ));
+            }
             return Ok(self.handle_backspace(event.ctrl, event.timestamp_ms));
         }
 
@@ -319,19 +406,13 @@ impl SessionEngine {
             return self.handle_space(event.timestamp_ms);
         }
 
-        if self.line_metrics_start_ms.is_none() {
-            self.line_metrics_start_ms = Some(event.timestamp_ms);
-        }
-
         let latency_ms = self
             .last_key_ts_ms
             .map(|prev| (event.timestamp_ms - prev).max(0.0));
         self.last_key_ts_ms = Some(event.timestamp_ms);
 
-        // Identify expected key_id before mutation so multi-keystroke Devanagari clusters track each stroke accurately.
         let expected_key_id = self.expected_telemetry_key_id();
 
-        // Resolve input under active layout (CapsLock ignored for Hindi layouts per Safeguard #2).
         let (action, updated_buffer) = match self.layout {
             LayoutKind::EnQwerty => {
                 let act = qwerty::map_key(key, event.shift, event.caps_lock);
@@ -487,14 +568,17 @@ impl SessionEngine {
             return Err(AksharError::SessionNotActive);
         }
         self.active = false;
-        self.storage.upsert_key_stats(&self.key_stats)?;
+        if self.mode != PracticeMode::Exam {
+            self.storage.upsert_key_stats(&self.key_stats)?;
+        }
         let snapshot = self.metrics.snapshot(None);
         if snapshot.keystrokes > 0 {
-            self.persist_session_record(&snapshot)?;
+            self.persist_session_record(&snapshot, "final")?;
         }
         Ok(SessionSummary {
             session_id: self.session_id.clone(),
             layout: self.layout,
+            mode: self.mode,
             lines_completed: self.lines_completed,
             metrics: snapshot,
         })
@@ -548,6 +632,22 @@ impl SessionEngine {
             unlocked_count,
             total_keys,
         })
+    }
+
+    /// Returns built-in CPCT/SSC passages combined with any user-saved custom passages.
+    pub fn list_exam_passages(&self) -> Result<Vec<ExamPassage>, AksharError> {
+        let mut all: Vec<ExamPassage> = self.corpus.exam_passages().to_vec();
+        for custom in self.storage.list_custom_passages()? {
+            all.push(ExamPassage {
+                id: custom.id,
+                language: custom.language,
+                title: custom.title,
+                category: "Custom".to_string(),
+                content: custom.content,
+                is_custom: true,
+            });
+        }
+        Ok(all)
     }
 
     pub fn export_backup(&self) -> Result<BackupBundleV1, AksharError> {
@@ -640,6 +740,10 @@ impl SessionEngine {
         latency_ms: Option<f64>,
         is_correct: bool,
     ) -> Option<UnlockedKeyEvent> {
+        // Exam mode evaluates passages across locked/unlocked keys without mutating adaptive progression.
+        if self.mode == PracticeMode::Exam {
+            return None;
+        }
         let key_id = expected_key_id?;
         record_telemetry_and_check_unlock(
             &mut self.key_stats,
@@ -707,8 +811,9 @@ impl SessionEngine {
             self.active_typed.clear();
         }
 
-        // Persist key_stats at word boundaries in WAL mode (fast and crash-safe).
-        self.storage.upsert_key_stats(&self.key_stats)?;
+        if self.mode != PracticeMode::Exam {
+            self.storage.upsert_key_stats(&self.key_stats)?;
+        }
         self.recount_uncorrected_errors();
         let (line_completed, next_line) = self.maybe_roll_line(timestamp_ms)?;
         let sound = if line_completed {
@@ -718,7 +823,7 @@ impl SessionEngine {
         } else {
             KeySoundKind::Error
         };
-        let updated_stats = if line_completed {
+        let updated_stats = if line_completed && self.mode != PracticeMode::Exam {
             Some(self.key_stats.clone())
         } else {
             None
@@ -803,9 +908,12 @@ impl SessionEngine {
             return Ok((false, None));
         }
 
-        let snap = self.metrics.snapshot(Some(timestamp_ms));
-        self.persist_session_record(&snap)?;
-        self.storage.upsert_key_stats(&self.key_stats)?;
+        if self.mode != PracticeMode::Exam {
+            let snap = self.metrics.snapshot(Some(timestamp_ms));
+            let suffix = format!("l{}", self.line_index);
+            self.persist_session_record(&snap, &suffix)?;
+            self.storage.upsert_key_stats(&self.key_stats)?;
+        }
 
         self.lines_completed += 1;
         self.line_index += 1;
@@ -822,15 +930,11 @@ impl SessionEngine {
         ))
     }
 
-    fn persist_session_record(&self, snap: &LiveMetrics) -> Result<(), AksharError> {
+    fn persist_session_record(&self, snap: &LiveMetrics, suffix: &str) -> Result<(), AksharError> {
         let record = SessionRecord {
-            id: format!("{}-l{}", self.session_id, self.line_index),
+            id: format!("{}-{suffix}", self.session_id),
             layout: self.layout,
-            mode: if self.adaptive_mode {
-                "adaptive".to_string()
-            } else {
-                "custom".to_string()
-            },
+            mode: self.mode.as_str().to_string(),
             duration_ms: snap.elapsed_ms,
             gross_wpm: snap.gross_wpm,
             net_wpm: snap.net_wpm,
@@ -848,21 +952,26 @@ impl SessionEngine {
         let mut r = rng();
         let words = match explicit {
             Some(w) => w,
-            None => {
-                if self.adaptive_mode {
-                    generate_adaptive_line(
-                        self.layout,
-                        &self.key_stats,
-                        &self.corpus,
-                        self.words_per_line,
-                        &mut r,
-                    )
-                    .or_else(|_| self.corpus.sample_words(self.layout, self.words_per_line, &mut r))?
-                } else {
-                    self.corpus
-                        .sample_words(self.layout, self.words_per_line, &mut r)?
-                }
-            }
+            None => match self.mode {
+                PracticeMode::Adaptive => generate_adaptive_line(
+                    self.layout,
+                    &self.key_stats,
+                    &self.corpus,
+                    self.words_per_line,
+                    &mut r,
+                )
+                .or_else(|_| self.corpus.sample_words(self.layout, self.words_per_line, &mut r))?,
+                PracticeMode::WeakDrill => generate_weak_drill_line(
+                    self.layout,
+                    &self.key_stats,
+                    &self.drill_focus_keys,
+                    &self.corpus,
+                    self.words_per_line,
+                    &mut r,
+                )
+                .or_else(|_| self.corpus.sample_words(self.layout, self.words_per_line, &mut r))?,
+                PracticeMode::Exam => self.next_exam_chunk(),
+            },
         };
         let joined = words.join(" ");
         let graphemes = split_graphemes(&joined);
@@ -875,6 +984,22 @@ impl SessionEngine {
         self.active_typed.clear();
         self.remington_ime.reset();
         Ok(())
+    }
+
+    fn next_exam_chunk(&mut self) -> Vec<String> {
+        if self.exam_words.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::with_capacity(EXAM_WORDS_PER_CHUNK);
+        let chunk_target = EXAM_WORDS_PER_CHUNK.min(self.exam_words.len());
+        for _ in 0..chunk_target {
+            if self.exam_cursor >= self.exam_words.len() {
+                self.exam_cursor = 0;
+            }
+            out.push(self.exam_words[self.exam_cursor].clone());
+            self.exam_cursor += 1;
+        }
+        out
     }
 
     fn recount_uncorrected_errors(&mut self) {

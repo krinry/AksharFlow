@@ -23,6 +23,7 @@ export function TypingStage() {
   const activeHasError = useTypingStore((s) => s.activeHasError);
   const pendingImePreview = useTypingStore((s) => s.pendingImePreview);
   const isReady = useTypingStore((s) => s.isReady);
+  const examSummary = useTypingStore((s) => s.examSummary);
   const errorMessage = useTypingStore((s) => s.errorMessage);
   const enqueueKeyInput = useTypingStore((s) => s.enqueueKeyInput);
   const setModifiers = useTypingStore((s) => s.setModifiers);
@@ -96,7 +97,7 @@ export function TypingStage() {
       return;
     }
 
-    if (!isReady) return;
+    if (!isReady || examSummary) return;
     e.preventDefault();
 
     void enqueueKeyInput({

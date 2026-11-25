@@ -1,8 +1,8 @@
-import { Globe, Keyboard, Maximize2, Minimize2, Moon, SlidersHorizontal, Sun, Volume2, VolumeX } from "lucide-react";
+import { BarChart3, Clock, Globe, Keyboard, Maximize2, Minimize2, Moon, SlidersHorizontal, Sun, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LayoutKind } from "@/lib/bindings";
 import { getDictionary } from "@/i18n/useTranslation";
-import { useTypingStore } from "@/stores/useTypingStore";
+import { useTypingStore, type NavTab } from "@/stores/useTypingStore";
 import type { SoundProfile } from "@/audio/soundEngine";
 import { cn } from "@/lib/utils";
 
@@ -10,11 +10,13 @@ const LAYOUTS: LayoutKind[] = ["en_qwerty", "hi_inscript", "hi_remington_gail"];
 const SOUND_PROFILES: SoundProfile[] = ["off", "blue", "brown", "red", "topre"];
 
 export function TopBar() {
+  const activeTab = useTypingStore((s) => s.activeTab);
   const layout = useTypingStore((s) => s.layout);
   const uiLang = useTypingStore((s) => s.uiLang);
   const theme = useTypingStore((s) => s.theme);
   const soundProfile = useTypingStore((s) => s.soundProfile);
   const zenMode = useTypingStore((s) => s.zenMode);
+  const setActiveTab = useTypingStore((s) => s.setActiveTab);
   const setLayout = useTypingStore((s) => s.setLayout);
   const setUiLang = useTypingStore((s) => s.setUiLang);
   const toggleTheme = useTypingStore((s) => s.toggleTheme);
@@ -24,7 +26,7 @@ export function TopBar() {
 
   const t = getDictionary(uiLang);
 
-  if (zenMode) {
+  if (zenMode && activeTab !== "analytics") {
     return (
       <header className="flex items-center justify-end px-6 pt-4">
         <Button variant="ghost" size="sm" onClick={toggleZenMode}>
@@ -34,6 +36,12 @@ export function TopBar() {
       </header>
     );
   }
+
+  const navItems: { id: NavTab; label: string; icon: React.ReactNode }[] = [
+    { id: "practice", label: t.nav.practice, icon: <Keyboard className="h-3.5 w-3.5" /> },
+    { id: "exam", label: t.nav.exam, icon: <Clock className="h-3.5 w-3.5" /> },
+    { id: "analytics", label: t.nav.analytics, icon: <BarChart3 className="h-3.5 w-3.5" /> },
+  ];
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-card/65 px-5 py-3 backdrop-blur-sm">
@@ -50,6 +58,30 @@ export function TopBar() {
         </div>
       </div>
 
+      {/* Mode Navigation Tabs */}
+      <nav className="flex items-center rounded-xl border border-border bg-muted/60 p-1">
+        {navItems.map((item) => {
+          const active = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => void setActiveTab(item.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+                active
+                  ? "bg-card text-primary shadow-xs ring-1 ring-border/70"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Layout Selector */}
       <div className="flex items-center rounded-xl border border-border bg-muted/60 p-1">
         {LAYOUTS.map((item) => {
           const active = layout === item;
@@ -59,7 +91,7 @@ export function TopBar() {
               type="button"
               onClick={() => void setLayout(item)}
               className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-medium transition-all cursor-pointer",
+                "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all cursor-pointer",
                 active
                   ? "bg-card text-foreground shadow-xs ring-1 ring-border/70"
                   : "text-muted-foreground hover:text-foreground",
@@ -71,6 +103,7 @@ export function TopBar() {
         })}
       </div>
 
+      {/* Utility Controls */}
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1">
           {soundProfile === "off" ? (
@@ -120,10 +153,12 @@ export function TopBar() {
           <SlidersHorizontal className="h-4 w-4" />
         </Button>
 
-        <Button variant="outline" size="sm" onClick={toggleZenMode}>
-          <Maximize2 className="h-3.5 w-3.5" />
-          {t.typing.zenMode}
-        </Button>
+        {activeTab !== "analytics" && (
+          <Button variant="outline" size="sm" onClick={toggleZenMode}>
+            <Maximize2 className="h-3.5 w-3.5" />
+            {t.typing.zenMode}
+          </Button>
+        )}
       </div>
     </header>
   );

@@ -1,4 +1,4 @@
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { AlertTriangle, Crosshair, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/i18n/useTranslation";
@@ -15,6 +15,7 @@ export function MetricsStrip() {
   const metrics = useTypingStore((s) => s.metrics);
   const lineIndex = useTypingStore((s) => s.lineIndex);
   const layout = useTypingStore((s) => s.layout);
+  const practiceMode = useTypingStore((s) => s.practiceMode);
   const capsLock = useTypingStore((s) => s.capsLock);
   const pendingImePreview = useTypingStore((s) => s.pendingImePreview);
   const uiLang = useTypingStore((s) => s.uiLang);
@@ -34,7 +35,14 @@ export function MetricsStrip() {
         <MetricPill label={t.metrics.time} value={formatDuration(metrics.elapsed_ms)} />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {practiceMode === "weak_drill" && (
+          <Badge variant="accent">
+            <Crosshair className="h-3.5 w-3.5" />
+            <span>{t.typing.weakDrillActive}</span>
+          </Badge>
+        )}
+
         {capsLock && (
           <Badge variant="warning" title={isHindi ? t.typing.capsLockHindiHint : undefined}>
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -54,15 +62,19 @@ export function MetricsStrip() {
           </Badge>
         )}
 
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => void initSession()}
-          title={t.typing.restartShortcut}
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          <span>{t.typing.restart}</span>
-        </Button>
+        {practiceMode !== "exam" && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void initSession()}
+            title={t.typing.restartShortcut}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>
+              {practiceMode === "weak_drill" ? t.typing.exitDrill : t.typing.restart}
+            </span>
+          </Button>
+        )}
       </div>
     </div>
   );

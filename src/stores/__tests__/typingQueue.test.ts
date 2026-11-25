@@ -2,10 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, type KeyEventDelta_Serialize, type SessionSnapshot_Serialize } from "@/lib/bindings";
 import { resetKeyQueueForTest, useTypingStore } from "@/stores/useTypingStore";
 
-function makeSnapshot(graphemes: string[]): SessionSnapshot_Serialize {
+function makeSnapshot(
+  graphemes: string[],
+  mode: "adaptive" | "weak_drill" | "exam" = "adaptive",
+): SessionSnapshot_Serialize {
   return {
     session_id: "test-1",
     layout: "en_qwerty",
+    mode,
+    allow_backspace: true,
+    exam_duration_secs: mode === "exam" ? 60 : null,
     line_index: 0,
     words: [graphemes.join("")],
     graphemes,
@@ -64,11 +70,18 @@ function makeDelta(index: number, committedIndex: number): KeyEventDelta_Seriali
   };
 }
 
-describe("useTypingStore safeguards & adaptive state", () => {
+describe("useTypingStore safeguards, adaptive state & exam timer", () => {
   beforeEach(() => {
     resetKeyQueueForTest();
     useTypingStore.getState().applySnapshot(makeSnapshot(["a", "b", "c"]));
-    useTypingStore.setState({ soundProfile: "off", unlockedToast: null, keyStats: [] });
+    useTypingStore.setState({
+      soundProfile: "off",
+      unlockedToast: null,
+      keyStats: [],
+      examRemainingSecs: 60,
+      examTimerRunning: false,
+      examSummary: null,
+    });
   });
 
   it("serializes rapid keystrokes strictly in FIFO order", async () => {
@@ -156,5 +169,17 @@ describe("useTypingStore safeguards & adaptive state", () => {
     expect(useTypingStore.getState().lineIndex).toBe(1);
     expect(useTypingStore.getState().graphemes).toEqual(["o", "k"]);
     expect(useTypingStore.getState().statuses).toEqual(["pending", "pending"]);
+  });
+
+  it("auto-starts exam countdown on first keystroke and ticks down cleanly", () => {
+    const store = useTypingStore.getState();
+    store.applySnapshot(makeSnapshot(["t", "e", "s", "t"], "exam"));
+    expect(useTypingStore.getState().examTimerRunning).toBe(false);
+
+    store.applyDelta(makeDelta(1, 0));
+    expect(useTypingStore.getState().examTimerRunning).toBe(true);
+
+    store.tickExamTimer();
+    expect(useTypingStore.getState().examRemainingSecs).toBe(59);
   });
 });

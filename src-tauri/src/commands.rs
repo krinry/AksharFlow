@@ -2,9 +2,11 @@ use std::path::Path;
 
 use tauri::State;
 
+use aksharflow_core::corpus::ExamPassage;
 use aksharflow_core::keymap::{KeyInputEvent, KeycapDescriptor, LayoutKind, layout_keycaps};
 use aksharflow_core::session::{
-    AnalyticsSnapshot, BootstrapSnapshot, ExportResult, KeyEventDelta, SessionSummary,
+    AnalyticsSnapshot, BootstrapSnapshot, ExportResult, KeyEventDelta, SessionSnapshot,
+    SessionSummary,
 };
 use aksharflow_core::storage::{AppSettings, CustomPassage};
 
@@ -43,6 +45,43 @@ pub fn start_session(
         .map_err(|e| e.to_string())?;
     engine
         .bootstrap(words_per_line.map(|n| n as usize))
+        .map_err(|e| e.to_string())
+}
+
+/// Starts a targeted weak-key drill prioritizing `focus_key_ids`.
+#[tauri::command]
+#[specta::specta]
+pub fn start_weak_key_drill(
+    state: State<'_, AppState>,
+    layout: LayoutKind,
+    focus_key_ids: Vec<String>,
+    words_per_line: Option<u32>,
+) -> Result<BootstrapSnapshot, String> {
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|_| "Engine state lock poisoned".to_string())?;
+    engine
+        .start_weak_key_drill(layout, focus_key_ids, words_per_line.map(|n| n as usize))
+        .map_err(|e| e.to_string())
+}
+
+/// Starts a timed CPCT/SSC Exam Mode session over `passage_content`.
+#[tauri::command]
+#[specta::specta]
+pub fn start_exam_session(
+    state: State<'_, AppState>,
+    layout: LayoutKind,
+    passage_content: String,
+    duration_secs: u32,
+    allow_backspace: bool,
+) -> Result<SessionSnapshot, String> {
+    let mut engine = state
+        .engine
+        .lock()
+        .map_err(|_| "Engine state lock poisoned".to_string())?;
+    engine
+        .start_exam_session(layout, passage_content, duration_secs, allow_backspace)
         .map_err(|e| e.to_string())
 }
 
@@ -146,6 +185,17 @@ pub fn reset_layout_progress(
     engine
         .reset_layout_progress(layout)
         .map_err(|e| e.to_string())
+}
+
+/// Lists built-in CPCT/SSC exam passages combined with user-saved custom passages.
+#[tauri::command]
+#[specta::specta]
+pub fn list_exam_passages(state: State<'_, AppState>) -> Result<Vec<ExamPassage>, String> {
+    let engine = state
+        .engine
+        .lock()
+        .map_err(|_| "Engine state lock poisoned".to_string())?;
+    engine.list_exam_passages().map_err(|e| e.to_string())
 }
 
 /// Saves a custom practice/exam passage to SQLite.

@@ -7,8 +7,9 @@ use tauri_specta::{Builder, collect_commands};
 
 use crate::commands::{
     export_backup_file, finish_session, get_analytics, get_bootstrap_state, get_layout_keycaps,
-    import_backup_file, list_custom_passages, process_key_event, reset_layout_progress,
-    save_custom_passage, start_session, update_settings,
+    import_backup_file, list_custom_passages, list_exam_passages, process_key_event,
+    reset_layout_progress, save_custom_passage, start_exam_session, start_session,
+    start_weak_key_drill, update_settings,
 };
 use crate::state::AppState;
 
@@ -16,6 +17,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         get_bootstrap_state,
         start_session,
+        start_weak_key_drill,
+        start_exam_session,
         process_key_event,
         finish_session,
         get_analytics,
@@ -23,6 +26,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         export_backup_file,
         import_backup_file,
         reset_layout_progress,
+        list_exam_passages,
         save_custom_passage,
         list_custom_passages,
         get_layout_keycaps,

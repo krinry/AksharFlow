@@ -579,6 +579,40 @@ pub fn generate_adaptive_line(
     words_per_line: usize,
     rng: &mut impl Rng,
 ) -> Result<Vec<String>, AksharError> {
+    let mut ranked: Vec<&KeyStatRecord> = stats.iter().filter(|s| s.unlocked).collect();
+    ranked.sort_by(|a, b| {
+        let a_unseen = a.hits + a.misses == 0;
+        let b_unseen = b.hits + b.misses == 0;
+        b_unseen
+            .cmp(&a_unseen)
+            .then_with(|| b.weakness_weight.total_cmp(&a.weakness_weight))
+    });
+    let top3_weak: HashSet<&str> = ranked.iter().take(3).map(|s| s.key_id.as_str()).collect();
+    generate_weighted_line(layout, stats, corpus, words_per_line, &top3_weak, 0.6, rng)
+}
+
+/// Generates a targeted drill line heavily weighted (85%) toward `focus_keys`.
+pub fn generate_weak_drill_line(
+    layout: LayoutKind,
+    stats: &[KeyStatRecord],
+    focus_keys: &[String],
+    corpus: &Corpus,
+    words_per_line: usize,
+    rng: &mut impl Rng,
+) -> Result<Vec<String>, AksharError> {
+    let focus: HashSet<&str> = focus_keys.iter().map(String::as_str).collect();
+    generate_weighted_line(layout, stats, corpus, words_per_line, &focus, 0.85, rng)
+}
+
+fn generate_weighted_line(
+    layout: LayoutKind,
+    stats: &[KeyStatRecord],
+    corpus: &Corpus,
+    words_per_line: usize,
+    focus_keys: &HashSet<&str>,
+    weak_ratio: f64,
+    rng: &mut impl Rng,
+) -> Result<Vec<String>, AksharError> {
     let unlocked: HashSet<&str> = stats
         .iter()
         .filter(|s| s.unlocked)
@@ -602,31 +636,20 @@ pub fn generate_adaptive_line(
         return Err(AksharError::EmptyCorpus(layout.to_string()));
     }
 
-    let mut ranked: Vec<&KeyStatRecord> = stats.iter().filter(|s| s.unlocked).collect();
-    ranked.sort_by(|a, b| {
-        let a_unseen = a.hits + a.misses == 0;
-        let b_unseen = b.hits + b.misses == 0;
-        b_unseen
-            .cmp(&a_unseen)
-            .then_with(|| b.weakness_weight.total_cmp(&a.weakness_weight))
-    });
-    let top3_weak: HashSet<&str> = ranked.iter().take(3).map(|s| s.key_id.as_str()).collect();
-
     let mut weak_pool: Vec<&str> = Vec::new();
     let mut general_pool: Vec<&str> = Vec::with_capacity(filtered.len());
 
     for (word, keys) in &filtered {
         general_pool.push(*word);
-        let weak_hits = keys.iter().filter(|k| top3_weak.contains(k.as_str())).count();
+        let weak_hits = keys.iter().filter(|k| focus_keys.contains(k.as_str())).count();
         if weak_hits > 0 {
-            // Add slightly higher representation for words packing more weak keys
             for _ in 0..weak_hits.min(3) {
                 weak_pool.push(*word);
             }
         }
     }
 
-    let weak_target = ((words_per_line as f64) * 0.6).round() as usize;
+    let weak_target = ((words_per_line as f64) * weak_ratio).round() as usize;
     let mut chosen = Vec::with_capacity(words_per_line);
 
     for _ in 0..weak_target {
@@ -647,7 +670,6 @@ pub fn generate_adaptive_line(
     }
 
     chosen.shuffle(rng);
-    // De-duplicate immediate adjacent words created by shuffle if pool has > 1 word
     if general_pool.len() > 1 {
         for idx in 1..chosen.len() {
             if chosen[idx] == chosen[idx - 1] {

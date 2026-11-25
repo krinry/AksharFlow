@@ -9,6 +9,10 @@ export const commands = {
 	getBootstrapState: (wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("get_bootstrap_state", { wordsPerLine }, options),
 	/**  Starts or switches to an adaptive typing session for `layout` and returns the bootstrap snapshot. */
 	startSession: (layout: LayoutKind, wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("start_session", { layout, wordsPerLine }, options),
+	/**  Starts a targeted weak-key drill prioritizing `focus_key_ids`. */
+	startWeakKeyDrill: (layout: LayoutKind, focusKeyIds: string[], wordsPerLine: number | null, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("start_weak_key_drill", { layout, focusKeyIds, wordsPerLine }, options),
+	/**  Starts a timed CPCT/SSC Exam Mode session over `passage_content`. */
+	startExamSession: (layout: LayoutKind, passageContent: string, durationSecs: number, allowBackspace: boolean, options?: InvokeOptions) => __TAURI_INVOKE<SessionSnapshot_Serialize>("start_exam_session", { layout, passageContent, durationSecs, allowBackspace }, options),
 	/**  Processes a physical or touch-keyboard key event and returns only a lightweight state delta. */
 	processKeyEvent: (event: KeyInputEvent, options?: InvokeOptions) => __TAURI_INVOKE<KeyEventDelta_Serialize>("process_key_event", { event }, options),
 	/**  Ends the active typing session, persists summary telemetry, and returns metrics. */
@@ -23,6 +27,8 @@ export const commands = {
 	importBackupFile: (path: string, replace: boolean, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("import_backup_file", { path, replace }, options),
 	/**  Resets unlocked keys and telemetry for `layout` back to Home Row. */
 	resetLayoutProgress: (layout: LayoutKind, options?: InvokeOptions) => __TAURI_INVOKE<BootstrapSnapshot_Serialize>("reset_layout_progress", { layout }, options),
+	/**  Lists built-in CPCT/SSC exam passages combined with user-saved custom passages. */
+	listExamPassages: (options?: InvokeOptions) => __TAURI_INVOKE<ExamPassage_Serialize[]>("list_exam_passages", undefined, options),
 	/**  Saves a custom practice/exam passage to SQLite. */
 	saveCustomPassage: (title: string, language: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<CustomPassage>("save_custom_passage", { title, language, content }, options),
 	/**  Lists saved custom passages. */
@@ -101,6 +107,29 @@ export type CustomPassage = {
 	title: string,
 	content: string,
 	created_at: string,
+};
+
+/**  Built-in or user-saved multi-paragraph passage for Timed Exam Mode. */
+export type ExamPassage = ExamPassage_Serialize | ExamPassage_Deserialize;
+
+/**  Built-in or user-saved multi-paragraph passage for Timed Exam Mode. */
+export type ExamPassage_Deserialize = {
+	id: string,
+	language: string,
+	title: string,
+	category: string,
+	content: string,
+	is_custom?: boolean,
+};
+
+/**  Built-in or user-saved multi-paragraph passage for Timed Exam Mode. */
+export type ExamPassage_Serialize = {
+	id: string,
+	language: string,
+	title: string,
+	category: string,
+	content: string,
+	is_custom: boolean,
 };
 
 /**  Summary returned after exporting a `.json` backup file. */
@@ -269,6 +298,9 @@ export type NextKeyHint = {
 	expected_label: string,
 };
 
+/**  Active training mode inside `SessionEngine`. */
+export type PracticeMode = "adaptive" | "weak_drill" | "exam";
+
 /**  Persisted completed typing session summary row. */
 export type SessionRecord = {
 	id: string,
@@ -292,6 +324,9 @@ export type SessionSnapshot = SessionSnapshot_Serialize | SessionSnapshot_Deseri
 export type SessionSnapshot_Deserialize = {
 	session_id: string,
 	layout: LayoutKind,
+	mode: PracticeMode,
+	allow_backspace: boolean,
+	exam_duration_secs?: number | null,
 	line_index: number,
 	words: string[],
 	graphemes: string[],
@@ -303,6 +338,9 @@ export type SessionSnapshot_Deserialize = {
 export type SessionSnapshot_Serialize = {
 	session_id: string,
 	layout: LayoutKind,
+	mode: PracticeMode,
+	allow_backspace: boolean,
+	exam_duration_secs: number | null,
 	line_index: number,
 	words: string[],
 	graphemes: string[],
@@ -310,10 +348,11 @@ export type SessionSnapshot_Serialize = {
 	delta: KeyEventDelta_Serialize,
 };
 
-/**  Final summary returned when ending a session. */
+/**  Final summary returned when ending a session or exam. */
 export type SessionSummary = {
 	session_id: string,
 	layout: LayoutKind,
+	mode: PracticeMode,
 	lines_completed: number,
 	metrics: LiveMetrics,
 };

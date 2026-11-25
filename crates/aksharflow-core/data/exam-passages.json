@@ -1,0 +1,44 @@
+[
+  {
+    "id": "en-office-1",
+    "language": "en",
+    "title": "Digital Governance & Public Administration",
+    "category": "CPCT / SSC",
+    "content": "Modern public administration relies on accurate digital records and timely citizen services. Every operator must maintain steady rhythm, minimal corrections, and consistent attention while transcribing official correspondence, statistical tables, and policy circulars across daily office workflows."
+  },
+  {
+    "id": "en-tech-1",
+    "language": "en",
+    "title": "Local-First Software Craftsmanship",
+    "category": "General / Technical",
+    "content": "Local-first software respects user ownership by storing data directly on the personal device before synchronizing across networks. Fast keyboard responsiveness, predictable state transitions, and crisp typography allow learners to focus deeply without external distractions or cloud latency."
+  },
+  {
+    "id": "en-editorial-1",
+    "language": "en",
+    "title": "Discipline in Skill Mastery",
+    "category": "Editorial",
+    "content": "Building lasting speed on a keyboard begins with deliberate accuracy rather than rushing through unfamiliar combinations. When each finger returns naturally to the home row after every keystroke, muscle memory develops smoothly and errors drop across longer paragraphs."
+  },
+  {
+    "id": "hi-cpct-1",
+    "language": "hi",
+    "title": "डिजिटल भारत और कार्यालयीन कार्यप्रणाली",
+    "category": "CPCT / SSC",
+    "content": "आधुनिक प्रशासनिक व्यवस्था में त्वरित और शुद्ध हिंदी टंकण का विशेष महत्व है। सरकारी कार्यालयों में पत्र व्यवहार, परिपत्र, आदेश और प्रतिवेदन तैयार करने के लिए कर्मचारी को गति के साथ शुद्धता पर भी पूरा ध्यान देना चाहिए। नियमित अभ्यास से कठिन मात्राएं और संयुक्त अक्षर सहजता से लिखे जा सकते हैं।"
+  },
+  {
+    "id": "hi-ssc-1",
+    "language": "hi",
+    "title": "शिक्षा, अनुशासन और कौशल विकास",
+    "category": "SSC / Editorial",
+    "content": "किसी भी भाषा में दक्षता प्राप्त करने के लिए धैर्य और निरंतर अभ्यास आवश्यक होता है। जब विद्यार्थी प्रतिदिन अपनी कमज़ोर कुंजियों पर ध्यान केंद्रित करता है, तब उसकी उंगलियों का संतुलन और लय स्वतः बेहतर होती जाती है। सही मुद्रा और एकाग्रता से परीक्षा में उच्चतम अंक प्राप्त किए जा सकते हैं।"
+  },
+  {
+    "id": "hi-culture-1",
+    "language": "hi",
+    "title": "प्रकृति संरक्षण और सतत विकास",
+    "category": "General Hindi",
+    "content": "पर्यावरण का संरक्षण प्रत्येक नागरिक का प्रमुख कर्तव्य है। स्वच्छ वायु, शुद्ध जल और हरियाली हमारे जीवन के आधार हैं। यदि समाज मिलकर वृक्षारोपण और जल संचयन को बढ़ावा दे, तो आने वाली पीढ़ियों के लिए एक सुरक्षित और समृद्ध भविष्य का निर्माण किया जा सकता है।"
+  }
+]

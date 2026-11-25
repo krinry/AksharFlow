@@ -1,6 +1,11 @@
 export interface Dictionary {
   appName: string;
   tagline: string;
+  nav: {
+    practice: string;
+    exam: string;
+    analytics: string;
+  };
   layouts: {
     en_qwerty: string;
     hi_inscript: string;
@@ -10,6 +15,7 @@ export interface Dictionary {
     wpm: string;
     netWpm: string;
     grossWpm: string;
+    kph: string;
     accuracy: string;
     consistency: string;
     errors: string;
@@ -29,6 +35,8 @@ export interface Dictionary {
     nextKey: string;
     withShift: string;
     withAltGr: string;
+    weakDrillActive: string;
+    exitDrill: string;
   };
   adaptive: {
     unlockedKeys: string;
@@ -36,6 +44,44 @@ export interface Dictionary {
     keyUnlockedTitle: string;
     confidenceLabel: string;
     heatmap: string;
+  };
+  exam: {
+    title: string;
+    duration: string;
+    minutes: string;
+    passage: string;
+    allowBackspace: string;
+    strictMode: string;
+    startExam: string;
+    submitExam: string;
+    waitingStart: string;
+    remaining: string;
+    addCustom: string;
+    customTitle: string;
+    customText: string;
+    savePassage: string;
+    cancel: string;
+    reportTitle: string;
+    retryExam: string;
+    backToPractice: string;
+    keystrokes: string;
+    linesDone: string;
+  };
+  analytics: {
+    title: string;
+    totalSessions: string;
+    avgNetWpm: string;
+    bestNetWpm: string;
+    avgAccuracy: string;
+    trendTitle: string;
+    weakKeysTitle: string;
+    practiceWeakKeys: string;
+    historyTitle: string;
+    mode: string;
+    date: string;
+    noData: string;
+    noWeakData: string;
+    attempts: string;
   };
   settings: {
     title: string;
@@ -72,6 +118,8 @@ export interface Dictionary {
     right_middle: string;
     right_ring: string;
     right_pinky: string;
+    guideTitle: string;
+    shiftPinky: string;
   };
   theme: {
     light: string;
@@ -82,6 +130,11 @@ export interface Dictionary {
 export const en: Dictionary = {
   appName: "AksharFlow",
   tagline: "Offline-First Adaptive Typing Studio",
+  nav: {
+    practice: "Practice",
+    exam: "Exam Mode",
+    analytics: "Analytics",
+  },
   layouts: {
     en_qwerty: "English · QWERTY",
     hi_inscript: "Hindi · InScript",
@@ -91,6 +144,7 @@ export const en: Dictionary = {
     wpm: "WPM",
     netWpm: "Net WPM",
     grossWpm: "Gross",
+    kph: "CPCT KPH",
     accuracy: "Accuracy",
     consistency: "Consistency",
     errors: "Errors",
@@ -110,6 +164,8 @@ export const en: Dictionary = {
     nextKey: "Next",
     withShift: "Shift",
     withAltGr: "AltGr",
+    weakDrillActive: "Weak-Key Drill",
+    exitDrill: "Return to Adaptive",
   },
   adaptive: {
     unlockedKeys: "Unlocked",
@@ -117,6 +173,44 @@ export const en: Dictionary = {
     keyUnlockedTitle: "New Key Unlocked",
     confidenceLabel: "Confidence",
     heatmap: "Heatmap",
+  },
+  exam: {
+    title: "CPCT / SSC Timed Exam",
+    duration: "Duration",
+    minutes: "min",
+    passage: "Passage",
+    allowBackspace: "Backspace Allowed",
+    strictMode: "Strict Exam (No Backspace)",
+    startExam: "Load / Reset Exam",
+    submitExam: "Finish & Score",
+    waitingStart: "Timer starts on first keystroke",
+    remaining: "Remaining",
+    addCustom: "Add Custom Text",
+    customTitle: "Passage Title",
+    customText: "Paste practice paragraph...",
+    savePassage: "Save Passage",
+    cancel: "Cancel",
+    reportTitle: "Exam Scorecard",
+    retryExam: "Retry Passage",
+    backToPractice: "Back to Practice",
+    keystrokes: "Keystrokes",
+    linesDone: "Chunks Done",
+  },
+  analytics: {
+    title: "Performance & Telemetry",
+    totalSessions: "Sessions",
+    avgNetWpm: "Avg Net WPM",
+    bestNetWpm: "Best WPM",
+    avgAccuracy: "Avg Accuracy",
+    trendTitle: "WPM & Accuracy Trend",
+    weakKeysTitle: "Top 5 Weakest Keys",
+    practiceWeakKeys: "Practice Weak Keys",
+    historyTitle: "Recent Session History",
+    mode: "Mode",
+    date: "Recorded",
+    noData: "Complete a line or exam session to view your WPM trend.",
+    noWeakData: "Type a few words first to rank your slowest or error-prone keys.",
+    attempts: "hits",
   },
   settings: {
     title: "Adaptive Engine & Backup",
@@ -153,6 +247,8 @@ export const en: Dictionary = {
     right_middle: "Right Middle",
     right_ring: "Right Ring",
     right_pinky: "Right Pinky",
+    guideTitle: "Finger Guide",
+    shiftPinky: "+ Pinky (Shift)",
   },
   theme: {
     light: "Light",

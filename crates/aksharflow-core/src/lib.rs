@@ -16,14 +16,14 @@ mod tests {
 
     use crate::adaptive::{
         MAX_LATENCY_CAP_MS, MIN_SAMPLES_FOR_UNLOCK, default_key_stats, generate_adaptive_line,
-        recompute_scores, record_telemetry_and_check_unlock, required_keys_for_word,
-        unlock_sequence,
+        generate_weak_drill_line, recompute_scores, record_telemetry_and_check_unlock,
+        required_keys_for_word, unlock_sequence,
     };
     use crate::corpus::Corpus;
     use crate::grapheme::{GraphemeStatus, split_graphemes};
     use crate::keymap::remington_gail::RemingtonIme;
     use crate::keymap::{KeyInputEvent, LayoutKind, MappedKeyAction, PhysicalKey, qwerty};
-    use crate::session::{KeySoundKind, SessionEngine};
+    use crate::session::{KeySoundKind, PracticeMode, SessionEngine};
     use crate::storage::{AppSettings, CustomPassage, SessionRecord, SqliteStorage};
 
     fn key_evt(code: &str, shift: bool, caps_lock: bool, ts: f64) -> KeyInputEvent {
@@ -356,5 +356,48 @@ mod tests {
         assert_eq!(loaded_stats[0].hits, 25);
         assert_eq!(fresh.list_typing_sessions(None, 10).unwrap().len(), 1);
         assert_eq!(fresh.list_custom_passages().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn exam_mode_strict_backspace_and_passage_listing() {
+        let mut engine = SessionEngine::new().unwrap();
+        let passages = engine.list_exam_passages().unwrap();
+        assert!(passages.len() >= 6);
+        assert!(passages.iter().any(|p| p.language == "hi"));
+
+        let snap = engine
+            .start_exam_session(LayoutKind::EnQwerty, "alpha beta".to_string(), 60, false)
+            .unwrap();
+        assert_eq!(snap.mode, PracticeMode::Exam);
+        assert!(!snap.allow_backspace);
+        assert_eq!(snap.exam_duration_secs, Some(60));
+
+        // Typing 'a' advances to index 1; strict backspace must NOT step back
+        engine.process_key(&key_evt("KeyA", false, false, 100.0)).unwrap();
+        let d_bs = engine.process_key(&key_evt("Backspace", false, false, 200.0)).unwrap();
+        assert_eq!(d_bs.grapheme_index, 1);
+        assert_eq!(d_bs.sound_kind, KeySoundKind::Error);
+
+        let summary = engine.finish_session().unwrap();
+        assert_eq!(summary.mode, PracticeMode::Exam);
+    }
+
+    #[test]
+    fn weak_key_drill_prioritizes_requested_keys() {
+        let corpus = Corpus::load_embedded().unwrap();
+        let stats = default_key_stats(LayoutKind::EnQwerty);
+        let mut r = StdRng::seed_from_u64(99);
+        let words = generate_weak_drill_line(
+            LayoutKind::EnQwerty,
+            &stats,
+            &["k".to_string()],
+            &corpus,
+            18,
+            &mut r,
+        )
+        .unwrap();
+        assert_eq!(words.len(), 18);
+        let k_count = words.iter().filter(|w| w.contains('k')).count();
+        assert!(k_count >= 12, "expected heavy 'k' drill ratio, got {k_count}");
     }
 }
