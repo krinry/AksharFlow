@@ -1,0 +1,47 @@
+[workspace]
+
+[package]
+name = "aksharflow-craftui"
+description = "Cross-platform pure-Rust CraftUI desktop & WebAssembly studio for AksharFlow"
+version = "1.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+authors = ["AksharFlow Contributors"]
+publish = false
+
+[lib]
+name = "aksharflow_craftui"
+crate-type = ["lib", "cdylib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "aksharflow-craftui"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[features]
+default = ["desktop"]
+desktop = ["craftui/desktop", "aksharflow-core/sqlite"]
+
+[dependencies]
+aksharflow-core = { path = "../aksharflow-core", default-features = false }
+craftui = { path = "../../../Craftui/crates/craftui", default-features = false, features = [
+    "dsl",
+    "embedded-fallback-font",
+    "gpu-sdf",
+    "gpu-vello",
+    "cpu-vello",
+    "cpu-tiny-skia",
+] }
+kurbo = "0.13.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+craftui-platform-web = { path = "../../../Craftui/crates/craftui-platform-web", features = ["gpu-sdf", "cpu-tiny-skia"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Storage", "Document", "HtmlElement", "Blob", "Url", "HtmlAnchorElement"] }
+
+[build-dependencies]
+craftui-dsl = { path = "../../../Craftui/crates/craftui-dsl" }

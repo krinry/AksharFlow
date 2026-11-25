@@ -11,8 +11,11 @@ pub enum AksharError {
     EmptyCorpus(String),
     #[error("Failed to parse JSON payload: {0}")]
     CorpusParse(#[from] serde_json::Error),
+    #[cfg(feature = "sqlite")]
     #[error("SQLite storage error: {0}")]
     Storage(#[from] rusqlite::Error),
+    #[error("Storage error: {0}")]
+    StorageMessage(String),
     #[error("Invalid backup bundle: {0}")]
     InvalidBackup(String),
     #[error("Filesystem I/O error: {0}")]

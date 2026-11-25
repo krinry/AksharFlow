@@ -275,7 +275,7 @@ pub fn save_custom_passage(
     language: String,
     content: String,
 ) -> Result<CustomPassage, String> {
-    let engine = state
+    let mut engine = state
         .engine
         .lock()
         .map_err(|_| "Engine state lock poisoned".to_string())?;

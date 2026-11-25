@@ -23,8 +23,12 @@ use crate::keymap::{
     hint_for_grapheme, inscript, layout_keycaps, qwerty,
 };
 use crate::metrics::{LiveMetrics, MetricsTracker};
+#[cfg(not(feature = "sqlite"))]
+use crate::storage::MemoryStorage;
+#[cfg(feature = "sqlite")]
+use crate::storage::SqliteStorage;
 use crate::storage::{
-    AppSettings, BackupBundleV1, CustomPassage, KeyStatRecord, SessionRecord, SqliteStorage,
+    AppSettings, BackupBundleV1, CustomPassage, KeyStatRecord, SessionRecord, StorageBackend,
 };
 
 const DEFAULT_WORDS_PER_LINE: usize = 18;
@@ -197,7 +201,7 @@ pub struct SessionSummary {
 #[derive(Debug)]
 pub struct SessionEngine {
     corpus: Corpus,
-    storage: SqliteStorage,
+    storage: Box<dyn StorageBackend>,
     settings: AppSettings,
     key_stats: Vec<KeyStatRecord>,
     reachable_keys: HashSet<String>,
@@ -231,20 +235,33 @@ pub struct SessionEngine {
 }
 
 impl SessionEngine {
-    /// Creates an in-memory engine (useful for isolated tests and ephemeral runs).
+    /// Creates an in-memory engine (SQLite in-memory when `sqlite` feature is enabled, otherwise `MemoryStorage`).
     pub fn new() -> Result<Self, AksharError> {
-        let storage = SqliteStorage::open_in_memory()?;
-        Self::with_storage(storage)
+        #[cfg(feature = "sqlite")]
+        {
+            let storage = SqliteStorage::open_in_memory()?;
+            return Self::with_storage(storage);
+        }
+        #[cfg(not(feature = "sqlite"))]
+        {
+            Self::with_storage(MemoryStorage::new())
+        }
     }
 
     /// Opens an on-disk SQLite database at `db_path` and initializes the engine.
+    #[cfg(feature = "sqlite")]
     pub fn open_db(db_path: &Path) -> Result<Self, AksharError> {
         let storage = SqliteStorage::open(db_path)?;
         Self::with_storage(storage)
     }
 
-    /// Initializes the engine around an existing `SqliteStorage`.
-    pub fn with_storage(mut storage: SqliteStorage) -> Result<Self, AksharError> {
+    /// Initializes the engine around any [`StorageBackend`] (SQLite, in-memory, or browser storage).
+    pub fn with_storage<S: StorageBackend + 'static>(storage: S) -> Result<Self, AksharError> {
+        Self::with_boxed_storage(Box::new(storage))
+    }
+
+    /// Initializes the engine around a boxed [`StorageBackend`].
+    pub fn with_boxed_storage(mut storage: Box<dyn StorageBackend>) -> Result<Self, AksharError> {
         let corpus = Corpus::load_embedded()?;
         let settings = storage.load_or_init_settings()?;
         let layout = settings.active_layout;
@@ -1015,8 +1032,26 @@ impl SessionEngine {
         self.storage.export_backup()
     }
 
+    pub fn export_backup_json(&self) -> Result<String, AksharError> {
+        let bundle = self.storage.export_backup()?;
+        Ok(serde_json::to_string_pretty(&bundle)?)
+    }
+
+    pub fn import_backup_json(
+        &mut self,
+        raw_json: &str,
+        replace: bool,
+    ) -> Result<BootstrapSnapshot, AksharError> {
+        let bundle: BackupBundleV1 = serde_json::from_str(raw_json)?;
+        self.storage.import_backup(&bundle, replace)?;
+        self.settings = self.storage.load_or_init_settings()?;
+        self.bootstrap(Some(self.words_per_line))
+    }
+
     pub fn export_backup_to_file(&self, path: &Path) -> Result<ExportResult, AksharError> {
-        let bundle = self.storage.export_backup_to_file(path)?;
+        let bundle = self.storage.export_backup()?;
+        let json = serde_json::to_string_pretty(&bundle)?;
+        std::fs::write(path, json)?;
         Ok(ExportResult {
             path: path.to_string_lossy().to_string(),
             exported_at: bundle.exported_at,
@@ -1031,9 +1066,8 @@ impl SessionEngine {
         path: &Path,
         replace: bool,
     ) -> Result<BootstrapSnapshot, AksharError> {
-        self.storage.import_backup_from_file(path, replace)?;
-        self.settings = self.storage.load_or_init_settings()?;
-        self.bootstrap(Some(self.words_per_line))
+        let raw = std::fs::read_to_string(path)?;
+        self.import_backup_json(&raw, replace)
     }
 
     pub fn reset_layout_progress(&mut self, layout: LayoutKind) -> Result<BootstrapSnapshot, AksharError> {
@@ -1048,7 +1082,7 @@ impl SessionEngine {
     }
 
     pub fn save_custom_passage(
-        &self,
+        &mut self,
         title: String,
         language: String,
         content: String,
@@ -1299,7 +1333,7 @@ impl SessionEngine {
         ))
     }
 
-    fn persist_session_record(&self, snap: &LiveMetrics, suffix: &str) -> Result<(), AksharError> {
+    fn persist_session_record(&mut self, snap: &LiveMetrics, suffix: &str) -> Result<(), AksharError> {
         let record = SessionRecord {
             id: format!("{}-{suffix}", self.session_id),
             layout: self.layout,

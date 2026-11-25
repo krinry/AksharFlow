@@ -1,0 +1,1009 @@
+export struct UnitItem {
+    code: string = "",
+    title: string = "",
+    meta: string = "",
+    stars_text: string = "",
+    selected: bool = false,
+    unlocked: bool = true,
+}
+
+export struct LessonItem {
+    id: string = "",
+    num_label: string = "",
+    kind_label: string = "",
+    stars_text: string = "",
+    wpm_text: string = "",
+    unlocked: bool = true,
+    is_next: bool = false,
+    passed: bool = false,
+}
+
+export struct KeyChipItem {
+    label: string = "",
+    sub_label: string = "",
+    unlocked: bool = false,
+    mastered: bool = false,
+    weak_focus: bool = false,
+}
+
+export struct WeakKeyRow {
+    key_label: string = "",
+    metrics_text: string = "",
+    confidence_text: string = "",
+}
+
+export struct SessionHistoryRow {
+    mode: string = "",
+    wpm: string = "",
+    accuracy: string = "",
+    kph: string = "",
+    errors: string = "",
+}
+
+export component AksharTopBar {
+    in-out property <string> app_title: "AksharFlow";
+    in-out property <string> app_sub: "Offline Adaptive & 700-Lesson Studio";
+    in-out property <bool> zen_mode: false;
+    in-out property <bool> is_analytics: false;
+
+    in-out property <bool> is_tab_jungle: false;
+    in-out property <bool> is_tab_adaptive: true;
+    in-out property <bool> is_tab_exam: false;
+    in-out property <bool> is_tab_analytics: false;
+
+    in-out property <string> label_jungle: "Jungle Journey";
+    in-out property <string> label_adaptive: "Smart Adaptive";
+    in-out property <string> label_exam: "Exam Mode";
+    in-out property <string> label_analytics: "Analytics";
+
+    in-out property <bool> is_qwerty: true;
+    in-out property <bool> is_inscript: false;
+    in-out property <bool> is_remington: false;
+
+    in-out property <string> sound_label: "Sound: Brown";
+    in-out property <string> lang_label: "EN";
+    in-out property <string> theme_label: "Light";
+    in-out property <string> zen_label: "Zen";
+    in-out property <string> exit_zen_label: "Exit Zen";
+    in-out property <string> settings_label: "Settings";
+
+    callback on_select_tab(int);
+    callback on_select_layout(int);
+    callback on_cycle_sound();
+    callback on_toggle_lang();
+    callback on_toggle_theme();
+    callback on_toggle_zen();
+    callback on_open_settings();
+
+    Column {
+        width: 100%;
+
+        if zen_mode : Row {
+            width: 100%;
+            padding_x: 16dp;
+            padding_y: 8dp;
+            justify: End;
+
+            Button {
+                text: exit_zen_label;
+                background: Theme.surface_variant;
+                foreground: Theme.text_primary;
+                border_radius: 8dp;
+                on_tap => { on_toggle_zen(); }
+            }
+        } else : Row {
+            width: 100%;
+            background: Theme.surface;
+            border_width: 1dp;
+            border_color: Theme.border;
+            padding_x: 14dp;
+            padding_y: 8dp;
+            gap: 10dp;
+            align: Center;
+            justify: SpaceBetween;
+
+            Column {
+                gap: 1dp;
+                Text {
+                    text: app_title;
+                    font_size: 16;
+                    font_weight: Bold;
+                    color: Theme.text_primary;
+                }
+                Text {
+                    text: app_sub;
+                    font_size: 11;
+                    color: Theme.text_secondary;
+                }
+            }
+
+            Row {
+                gap: 4dp;
+                align: Center;
+
+                Button {
+                    text: label_jungle;
+                    background: is_tab_jungle ? Theme.primary : Theme.surface_variant;
+                    foreground: is_tab_jungle ? Theme.on_primary : Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_tab(0); }
+                }
+                Button {
+                    text: label_adaptive;
+                    background: is_tab_adaptive ? Theme.primary : Theme.surface_variant;
+                    foreground: is_tab_adaptive ? Theme.on_primary : Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_tab(1); }
+                }
+                Button {
+                    text: label_exam;
+                    background: is_tab_exam ? Theme.primary : Theme.surface_variant;
+                    foreground: is_tab_exam ? Theme.on_primary : Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_tab(2); }
+                }
+                Button {
+                    text: label_analytics;
+                    background: is_tab_analytics ? Theme.primary : Theme.surface_variant;
+                    foreground: is_tab_analytics ? Theme.on_primary : Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_tab(3); }
+                }
+            }
+
+            Row {
+                gap: 4dp;
+                align: Center;
+
+                Button {
+                    text: "QWERTY";
+                    background: is_qwerty ? Theme.primary_container : Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_layout(0); }
+                }
+                Button {
+                    text: "InScript";
+                    background: is_inscript ? Theme.primary_container : Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_layout(1); }
+                }
+                Button {
+                    text: "Remington";
+                    background: is_remington ? Theme.primary_container : Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_select_layout(2); }
+                }
+            }
+
+            Row {
+                gap: 6dp;
+                align: Center;
+
+                Button {
+                    text: sound_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_cycle_sound(); }
+                }
+                Button {
+                    text: lang_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_toggle_lang(); }
+                }
+                Button {
+                    text: theme_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_toggle_theme(); }
+                }
+                Button {
+                    text: settings_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_open_settings(); }
+                }
+                if !is_analytics : Button {
+                    text: zen_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_toggle_zen(); }
+                }
+            }
+        }
+    }
+}
+
+export component AksharMetricsBar {
+    in-out property <string> net_wpm: "0";
+    in-out property <string> gross_wpm: "0";
+    in-out property <string> accuracy: "100.0%";
+    in-out property <string> consistency: "100%";
+    in-out property <string> line_label: "#1";
+    in-out property <string> time_label: "00:00";
+
+    in-out property <bool> show_caps_warning: false;
+    in-out property <string> caps_text: "CapsLock ON";
+    in-out property <bool> show_pending_ime: false;
+    in-out property <string> pending_ime_text: "";
+    in-out property <bool> is_jungle_lesson: false;
+    in-out property <string> lesson_header: "";
+    in-out property <bool> show_restart: true;
+    in-out property <string> restart_label: "New Line";
+    in-out property <string> back_map_label: "Back to Map";
+
+    callback on_restart();
+    callback on_back_to_map();
+
+    Column {
+        width: 100%;
+        gap: 8dp;
+
+        if is_jungle_lesson : Row {
+            width: 100%;
+            background: Theme.surface;
+            border_width: 1dp;
+            border_color: Theme.border;
+            border_radius: 10dp;
+            padding_x: 12dp;
+            padding_y: 8dp;
+            justify: SpaceBetween;
+            align: Center;
+
+            Text {
+                text: lesson_header;
+                font_size: 13;
+                font_weight: SemiBold;
+                color: Theme.text_primary;
+            }
+            Button {
+                text: back_map_label;
+                background: Theme.surface_variant;
+                foreground: Theme.text_primary;
+                border_radius: 8dp;
+                on_tap => { on_back_to_map(); }
+            }
+        }
+
+        Row {
+            width: 100%;
+            align: Center;
+            justify: SpaceBetween;
+            gap: 8dp;
+
+            Row {
+                gap: 8dp;
+                align: Center;
+
+                Row {
+                    background: Theme.surface;
+                    border_width: 1dp;
+                    border_color: Theme.border;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    gap: 6dp;
+                    align: Center;
+                    Text { text: "NET WPM"; font_size: 11; color: Theme.text_secondary; }
+                    Text { text: net_wpm; font_size: 16; font_weight: Bold; color: Theme.primary; }
+                }
+                Row {
+                    background: Theme.surface;
+                    border_width: 1dp;
+                    border_color: Theme.border;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    gap: 6dp;
+                    align: Center;
+                    Text { text: "GROSS"; font_size: 11; color: Theme.text_secondary; }
+                    Text { text: gross_wpm; font_size: 15; font_weight: Bold; color: Theme.text_primary; }
+                }
+                Row {
+                    background: Theme.surface;
+                    border_width: 1dp;
+                    border_color: Theme.border;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    gap: 6dp;
+                    align: Center;
+                    Text { text: "ACC"; font_size: 11; color: Theme.text_secondary; }
+                    Text { text: accuracy; font_size: 15; font_weight: Bold; color: Theme.text_primary; }
+                }
+                Row {
+                    background: Theme.surface;
+                    border_width: 1dp;
+                    border_color: Theme.border;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    gap: 6dp;
+                    align: Center;
+                    Text { text: "LINE"; font_size: 11; color: Theme.text_secondary; }
+                    Text { text: line_label; font_size: 14; font_weight: SemiBold; color: Theme.text_primary; }
+                }
+                Row {
+                    background: Theme.surface;
+                    border_width: 1dp;
+                    border_color: Theme.border;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    gap: 6dp;
+                    align: Center;
+                    Text { text: "TIME"; font_size: 11; color: Theme.text_secondary; }
+                    Text { text: time_label; font_size: 14; font_weight: SemiBold; color: Theme.text_primary; }
+                }
+            }
+
+            Row {
+                gap: 8dp;
+                align: Center;
+
+                if show_caps_warning : Row {
+                    background: #92400E;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    Text { text: caps_text; font_size: 12; font_weight: SemiBold; color: #FEF3C7; }
+                }
+                if show_pending_ime : Row {
+                    background: Theme.primary_container;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 6dp;
+                    Text { text: pending_ime_text; font_size: 13; font_weight: Bold; color: Theme.text_primary; }
+                }
+                if show_restart : Button {
+                    text: restart_label;
+                    background: Theme.surface_variant;
+                    foreground: Theme.text_primary;
+                    border_radius: 8dp;
+                    on_tap => { on_restart(); }
+                }
+            }
+        }
+    }
+}
+
+export component AksharUnlockStrip {
+    in-out property <string> summary_text: "Unlocked: 0/0";
+    in-out property <string> threshold_text: "Target 85% confidence";
+    in-out property <[KeyChipItem]> chips: [];
+
+    Column {
+        width: 100%;
+        background: Theme.surface;
+        border_width: 1dp;
+        border_color: Theme.border;
+        border_radius: 12dp;
+        padding: 10dp;
+        gap: 8dp;
+
+        Row {
+            width: 100%;
+            justify: SpaceBetween;
+            align: Center;
+            Text { text: summary_text; font_size: 12; font_weight: SemiBold; color: Theme.text_primary; }
+            Text { text: threshold_text; font_size: 11; color: Theme.text_secondary; }
+        }
+
+        VirtualGrid {
+            width: 100%;
+            height: 76dp;
+            columns: 14;
+            item_extent: 34dp;
+            for chip in chips : Column {
+                padding: 2dp;
+                Column {
+                    width: 100%;
+                    height: 30dp;
+                    background: chip.mastered ? #065F46 : (chip.weak_focus ? #78350F : (chip.unlocked ? Theme.surface_variant : Theme.background));
+                    border_width: 1dp;
+                    border_color: chip.weak_focus ? Theme.primary : Theme.border;
+                    border_radius: 6dp;
+                    align: Center;
+                    justify: Center;
+                    Text {
+                        text: chip.label;
+                        font_size: 12;
+                        font_weight: SemiBold;
+                        color: chip.unlocked ? Theme.text_primary : Theme.text_secondary;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AksharJunglePanel {
+    in-out property <string> title: "Jungle Journey";
+    in-out property <string> subtitle: "700 structured lessons across 28 progressive units";
+    in-out property <string> progress_summary: "0 / 3500 stars | 0 / 700 lessons";
+    in-out property <string> continue_label: "Continue Next";
+
+    in-out property <int> selected_stage: 0;
+    in-out property <[UnitItem]> units: [];
+    in-out property <string> active_unit_title: "Unit 1";
+    in-out property <string> active_unit_meta: "";
+    in-out property <[LessonItem]> lessons: [];
+
+    callback on_continue_next();
+    callback on_select_stage(int);
+    callback on_select_unit(int);
+    callback on_start_lesson(string);
+
+    Column {
+        width: 100%;
+        flex_grow: 1.0;
+        min_height: 0dp;
+        gap: 10dp;
+
+        Row {
+            width: 100%;
+            background: Theme.surface;
+            border_width: 1dp;
+            border_color: Theme.border;
+            border_radius: 12dp;
+            padding: 14dp;
+            justify: SpaceBetween;
+            align: Center;
+
+            Column {
+                gap: 4dp;
+                Text { text: title; font_size: 18; font_weight: Bold; color: Theme.text_primary; }
+                Text { text: subtitle; font_size: 12; color: Theme.text_secondary; }
+                Text { text: progress_summary; font_size: 12; font_weight: SemiBold; color: Theme.primary; }
+            }
+
+            Button {
+                text: continue_label;
+                background: Theme.primary;
+                foreground: Theme.on_primary;
+                border_radius: 10dp;
+                padding_x: 16dp;
+                padding_y: 10dp;
+                on_tap => { on_continue_next(); }
+            }
+        }
+
+        Tabs {
+            width: 100%;
+            tabs: ["All 28 Units", "Home Row (1-4)", "Top & Matras (5-10)", "Bottom & Conjuncts (11-16)", "Shift & Numbers (17-22)", "Stories (23-28)"];
+            active: selected_stage;
+            on_change => { on_select_stage(index); }
+        }
+
+        Row {
+            width: 100%;
+            flex_grow: 1.0;
+            min_height: 0dp;
+            gap: 12dp;
+
+            ScrollView {
+                width: 310dp;
+                height: 100%;
+
+                Column {
+                    width: 100%;
+                    gap: 6dp;
+
+                    for unit, idx in units : Column {
+                        width: 100%;
+                        background: unit.selected ? Theme.primary_container : Theme.surface;
+                        border_width: 1dp;
+                        border_color: unit.selected ? Theme.primary : Theme.border;
+                        border_radius: 10dp;
+                        padding: 10dp;
+                        gap: 3dp;
+                        cursor: Pointer;
+                        on_tap => { on_select_unit(idx); }
+
+                        Row {
+                            width: 100%;
+                            justify: SpaceBetween;
+                            align: Center;
+                            Text { text: unit.code + "  " + unit.title; font_size: 13; font_weight: SemiBold; color: Theme.text_primary; }
+                            Text { text: unit.stars_text; font_size: 12; font_weight: Bold; color: Theme.primary; }
+                        }
+                        Text { text: unit.meta; font_size: 11; color: Theme.text_secondary; }
+                    }
+                }
+            }
+
+            Column {
+                flex_grow: 1.0;
+                height: 100%;
+                min_height: 0dp;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 12dp;
+                padding: 14dp;
+                gap: 10dp;
+
+                Row {
+                    width: 100%;
+                    justify: SpaceBetween;
+                    align: Center;
+                    Text { text: active_unit_title; font_size: 16; font_weight: Bold; color: Theme.text_primary; }
+                    Text { text: active_unit_meta; font_size: 12; color: Theme.text_secondary; }
+                }
+
+                VirtualGrid {
+                    width: 100%;
+                    flex_grow: 1.0;
+                    columns: 5;
+                    item_extent: 86dp;
+
+                    for lesson in lessons : Column {
+                        padding: 4dp;
+
+                        Column {
+                            width: 100%;
+                            height: 78dp;
+                            background: lesson.is_next ? Theme.primary_container : (lesson.passed ? #064E3B : Theme.background);
+                            border_width: 1dp;
+                            border_color: lesson.is_next ? Theme.primary : Theme.border;
+                            border_radius: 10dp;
+                            padding: 8dp;
+                            justify: SpaceBetween;
+                            opacity: lesson.unlocked ? 1.0 : 0.45;
+                            cursor: Pointer;
+                            on_tap => { on_start_lesson(lesson.id); }
+
+                            Row {
+                                width: 100%;
+                                justify: SpaceBetween;
+                                Text { text: lesson.num_label; font_size: 11; font_weight: Bold; color: Theme.text_secondary; }
+                                Text { text: lesson.wpm_text; font_size: 10; color: Theme.text_secondary; }
+                            }
+                            Text { text: lesson.kind_label; font_size: 12; font_weight: SemiBold; color: Theme.text_primary; }
+                            Text { text: lesson.stars_text; font_size: 12; font_weight: Bold; color: Theme.primary; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AksharExamBar {
+    in-out property <int> duration_idx: 2;
+    in-out property <string> passage_label: "Passage";
+    in-out property <string> remaining_label: "05:00";
+    in-out property <bool> strict_no_backspace: false;
+    in-out property <bool> show_custom_form: false;
+    in-out property <string> custom_title: "";
+    in-out property <string> custom_body: "";
+
+    callback on_duration_index(int);
+    callback on_prev_passage();
+    callback on_next_passage();
+    callback on_toggle_strict(bool);
+    callback on_toggle_custom_form();
+    callback on_save_custom();
+    callback on_reset_exam();
+    callback on_finish_exam();
+
+    Column {
+        width: 100%;
+        background: Theme.surface;
+        border_width: 1dp;
+        border_color: Theme.border;
+        border_radius: 12dp;
+        padding: 12dp;
+        gap: 10dp;
+
+        Row {
+            width: 100%;
+            justify: SpaceBetween;
+            align: Center;
+            gap: 10dp;
+
+            Row {
+                gap: 6dp;
+                align: Center;
+                Tabs {
+                    width: 240dp;
+                    tabs: ["1m", "2m", "5m", "10m", "15m"];
+                    active: duration_idx;
+                    on_change => { on_duration_index(index); }
+                }
+                Button { text: "<"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_prev_passage(); } }
+                Text { text: passage_label; font_size: 13; font_weight: SemiBold; color: Theme.text_primary; }
+                Button { text: ">"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_next_passage(); } }
+            }
+
+            Row {
+                gap: 8dp;
+                align: Center;
+                Switch {
+                    checked <=> strict_no_backspace;
+                    label: "Strict (No Backspace)";
+                    on_change => { on_toggle_strict(checked); }
+                }
+                Text { text: remaining_label; font_size: 16; font_weight: Bold; color: Theme.primary; }
+                Button { text: "Add Custom"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_toggle_custom_form(); } }
+                Button { text: "Reset"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_reset_exam(); } }
+                Button { text: "Finish"; background: Theme.primary; foreground: Theme.on_primary; on_tap => { on_finish_exam(); } }
+            }
+        }
+
+        if show_custom_form : Column {
+            width: 100%;
+            gap: 8dp;
+            background: Theme.background;
+            border_radius: 8dp;
+            padding: 10dp;
+
+            TextInput {
+                width: 100%;
+                placeholder: "Passage Title";
+                value <=> custom_title;
+            }
+            TextArea {
+                width: 100%;
+                height: 80dp;
+                placeholder: "Paste Hindi or English practice paragraph...";
+                value <=> custom_body;
+            }
+            Row {
+                width: 100%;
+                justify: End;
+                gap: 8dp;
+                Button { text: "Cancel"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_toggle_custom_form(); } }
+                Button { text: "Save Passage"; background: Theme.primary; foreground: Theme.on_primary; on_tap => { on_save_custom(); } }
+            }
+        }
+    }
+}
+
+export component AksharAnalyticsPanel {
+    in-out property <string> jungle_summary: "0 / 3500 Stars  |  0 / 700 Lessons";
+    in-out property <string> avg_wpm: "0";
+    in-out property <string> best_wpm: "0";
+    in-out property <string> avg_acc: "100%";
+    in-out property <string> total_sessions: "0";
+    in-out property <string> unlocked_ratio: "0/0";
+    in-out property <[WeakKeyRow]> weak_keys: [];
+    in-out property <[SessionHistoryRow]> recent_sessions: [];
+
+    callback on_continue_jungle();
+    callback on_practice_weak_keys();
+
+    Column {
+        width: 100%;
+        gap: 10dp;
+
+        Row {
+            width: 100%;
+            background: Theme.surface;
+            border_width: 1dp;
+            border_color: Theme.border;
+            border_radius: 12dp;
+            padding: 14dp;
+            justify: SpaceBetween;
+            align: Center;
+
+            Column {
+                gap: 4dp;
+                Text { text: "Jungle Journey Mastery"; font_size: 14; font_weight: Bold; color: Theme.text_primary; }
+                Text { text: jungle_summary; font_size: 13; color: Theme.primary; font_weight: SemiBold; }
+            }
+
+            Button {
+                text: "Open Jungle Journey";
+                background: Theme.primary;
+                foreground: Theme.on_primary;
+                on_tap => { on_continue_jungle(); }
+            }
+        }
+
+        Row {
+            width: 100%;
+            gap: 10dp;
+
+            Column {
+                flex_grow: 1.0; background: Theme.surface; border_width: 1dp; border_color: Theme.border; border_radius: 10dp; padding: 12dp;
+                Text { text: "Avg Net WPM"; font_size: 11; color: Theme.text_secondary; }
+                Text { text: avg_wpm; font_size: 20; font_weight: Bold; color: Theme.primary; }
+            }
+            Column {
+                flex_grow: 1.0; background: Theme.surface; border_width: 1dp; border_color: Theme.border; border_radius: 10dp; padding: 12dp;
+                Text { text: "Best WPM"; font_size: 11; color: Theme.text_secondary; }
+                Text { text: best_wpm; font_size: 20; font_weight: Bold; color: Theme.text_primary; }
+            }
+            Column {
+                flex_grow: 1.0; background: Theme.surface; border_width: 1dp; border_color: Theme.border; border_radius: 10dp; padding: 12dp;
+                Text { text: "Avg Accuracy"; font_size: 11; color: Theme.text_secondary; }
+                Text { text: avg_acc; font_size: 20; font_weight: Bold; color: Theme.text_primary; }
+            }
+            Column {
+                flex_grow: 1.0; background: Theme.surface; border_width: 1dp; border_color: Theme.border; border_radius: 10dp; padding: 12dp;
+                Text { text: "Sessions"; font_size: 11; color: Theme.text_secondary; }
+                Text { text: total_sessions; font_size: 20; font_weight: Bold; color: Theme.text_primary; }
+            }
+            Column {
+                flex_grow: 1.0; background: Theme.surface; border_width: 1dp; border_color: Theme.border; border_radius: 10dp; padding: 12dp;
+                Text { text: "Unlocked Keys"; font_size: 11; color: Theme.text_secondary; }
+                Text { text: unlocked_ratio; font_size: 20; font_weight: Bold; color: Theme.text_primary; }
+            }
+        }
+
+        Row {
+            width: 100%;
+            gap: 12dp;
+
+            Column {
+                flex_grow: 1.0;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 12dp;
+                padding: 12dp;
+                gap: 8dp;
+
+                Row {
+                    width: 100%;
+                    justify: SpaceBetween;
+                    align: Center;
+                    Text { text: "Top 5 Weakest Keys"; font_size: 14; font_weight: Bold; color: Theme.text_primary; }
+                    Button {
+                        text: "Practice Weak Keys";
+                        background: Theme.primary;
+                        foreground: Theme.on_primary;
+                        on_tap => { on_practice_weak_keys(); }
+                    }
+                }
+
+                for wk in weak_keys : Row {
+                    width: 100%;
+                    background: Theme.background;
+                    border_radius: 8dp;
+                    padding_x: 10dp;
+                    padding_y: 8dp;
+                    justify: SpaceBetween;
+                    align: Center;
+                    Text { text: wk.key_label; font_size: 14; font_weight: Bold; color: Theme.text_primary; }
+                    Text { text: wk.metrics_text; font_size: 12; color: Theme.text_secondary; }
+                    Text { text: wk.confidence_text; font_size: 12; font_weight: Bold; color: Theme.primary; }
+                }
+            }
+
+            Column {
+                flex_grow: 1.0;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 12dp;
+                padding: 12dp;
+                gap: 8dp;
+
+                Text { text: "Recent Sessions"; font_size: 14; font_weight: Bold; color: Theme.text_primary; }
+
+                ScrollView {
+                    width: 100%;
+                    height: 170dp;
+
+                    Column {
+                        width: 100%;
+                        gap: 4dp;
+
+                        for row in recent_sessions : Row {
+                            width: 100%;
+                            background: Theme.background;
+                            border_radius: 6dp;
+                            padding_x: 8dp;
+                            padding_y: 6dp;
+                            justify: SpaceBetween;
+                            Text { text: row.mode; font_size: 12; color: Theme.text_primary; }
+                            Text { text: row.wpm + " WPM"; font_size: 12; font_weight: Bold; color: Theme.primary; }
+                            Text { text: row.accuracy + "%"; font_size: 12; color: Theme.text_primary; }
+                            Text { text: row.kph + " KPH"; font_size: 11; color: Theme.text_secondary; }
+                            Text { text: row.errors + " err"; font_size: 11; color: Theme.text_secondary; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AksharModalsOverlay {
+    // Unlock toast
+    in-out property <bool> show_unlock_toast: false;
+    in-out property <string> unlock_toast_text: "";
+
+    // Lesson complete modal
+    in-out property <bool> lesson_modal_open: false;
+    in-out property <string> lesson_title: "Lesson Complete";
+    in-out property <string> lesson_stars: "★★★★★";
+    in-out property <string> lesson_status: "";
+    in-out property <string> lesson_wpm: "0 WPM";
+    in-out property <string> lesson_accuracy: "100%";
+    in-out property <bool> can_next_lesson: false;
+
+    // Exam report modal
+    in-out property <bool> exam_modal_open: false;
+    in-out property <string> exam_metrics_line1: "";
+    in-out property <string> exam_metrics_line2: "";
+
+    // Settings modal
+    in-out property <bool> settings_open: false;
+    in-out property <float> target_wpm: 25.0;
+    in-out property <float> target_accuracy: 95.0;
+    in-out property <float> unlock_threshold: 85.0;
+    in-out property <string> settings_status: "";
+
+    callback on_dismiss_toast();
+    callback on_lesson_back_map();
+    callback on_lesson_retry();
+    callback on_lesson_next();
+    callback on_exam_retry();
+    callback on_exam_to_adaptive();
+    callback on_settings_changed();
+    callback on_export_backup();
+    callback on_import_backup();
+    callback on_reset_layout();
+
+    Stack {
+        width: 100%;
+        height: 100%;
+
+        if show_unlock_toast : Row {
+            bottom: 18dp;
+            right: 18dp;
+            background: #065F46;
+            border_radius: 10dp;
+            padding_x: 14dp;
+            padding_y: 10dp;
+            gap: 10dp;
+            align: Center;
+
+            Text { text: unlock_toast_text; font_size: 13; font_weight: SemiBold; color: #ECFDF5; }
+            Button { text: "OK"; background: #047857; foreground: #FFFFFF; on_tap => { on_dismiss_toast(); } }
+        }
+
+        Modal {
+            open <=> lesson_modal_open;
+
+            Column {
+                width: 380dp;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 14dp;
+                padding: 20dp;
+                gap: 12dp;
+
+                Text { text: lesson_title; font_size: 18; font_weight: Bold; color: Theme.text_primary; }
+                Text { text: lesson_stars; font_size: 24; font_weight: Bold; color: Theme.primary; }
+                Text { text: lesson_status; font_size: 12; color: Theme.text_secondary; }
+
+                Row {
+                    width: 100%;
+                    gap: 10dp;
+                    Column {
+                        flex_grow: 1.0; background: Theme.background; border_radius: 8dp; padding: 10dp;
+                        Text { text: "Net WPM"; font_size: 11; color: Theme.text_secondary; }
+                        Text { text: lesson_wpm; font_size: 18; font_weight: Bold; color: Theme.primary; }
+                    }
+                    Column {
+                        flex_grow: 1.0; background: Theme.background; border_radius: 8dp; padding: 10dp;
+                        Text { text: "Accuracy"; font_size: 11; color: Theme.text_secondary; }
+                        Text { text: lesson_accuracy; font_size: 18; font_weight: Bold; color: Theme.text_primary; }
+                    }
+                }
+
+                Row {
+                    width: 100%;
+                    justify: SpaceBetween;
+                    gap: 8dp;
+                    Button { text: "Back to Map"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { lesson_modal_open = false; on_lesson_back_map(); } }
+                    Row {
+                        gap: 8dp;
+                        Button { text: "Retry"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { lesson_modal_open = false; on_lesson_retry(); } }
+                        if can_next_lesson : Button { text: "Next Lesson"; background: Theme.primary; foreground: Theme.on_primary; on_tap => { lesson_modal_open = false; on_lesson_next(); } }
+                    }
+                }
+            }
+        }
+
+        Modal {
+            open <=> exam_modal_open;
+
+            Column {
+                width: 420dp;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 14dp;
+                padding: 20dp;
+                gap: 12dp;
+
+                Text { text: "Exam Scorecard"; font_size: 18; font_weight: Bold; color: Theme.text_primary; }
+                Text { text: exam_metrics_line1; font_size: 15; font_weight: Bold; color: Theme.primary; }
+                Text { text: exam_metrics_line2; font_size: 13; color: Theme.text_secondary; }
+
+                Row {
+                    width: 100%;
+                    justify: End;
+                    gap: 8dp;
+                    Button { text: "Back to Smart Adaptive"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { exam_modal_open = false; on_exam_to_adaptive(); } }
+                    Button { text: "Retry Passage"; background: Theme.primary; foreground: Theme.on_primary; on_tap => { exam_modal_open = false; on_exam_retry(); } }
+                }
+            }
+        }
+
+        Modal {
+            open <=> settings_open;
+
+            Column {
+                width: 440dp;
+                background: Theme.surface;
+                border_width: 1dp;
+                border_color: Theme.border;
+                border_radius: 14dp;
+                padding: 20dp;
+                gap: 12dp;
+
+                Row {
+                    width: 100%;
+                    justify: SpaceBetween;
+                    align: Center;
+                    Text { text: "Adaptive Engine & Backup"; font_size: 17; font_weight: Bold; color: Theme.text_primary; }
+                    Button { text: "Close"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { settings_open = false; } }
+                }
+
+                Slider {
+                    width: 100%;
+                    value <=> target_wpm;
+                    min: 15.0;
+                    max: 80.0;
+                    label: "Target Speed (WPM)";
+                    on_change => { on_settings_changed(); }
+                }
+                Slider {
+                    width: 100%;
+                    value <=> target_accuracy;
+                    min: 80.0;
+                    max: 100.0;
+                    label: "Min Accuracy (%)";
+                    on_change => { on_settings_changed(); }
+                }
+                Slider {
+                    width: 100%;
+                    value <=> unlock_threshold;
+                    min: 70.0;
+                    max: 98.0;
+                    label: "Unlock Confidence (%)";
+                    on_change => { on_settings_changed(); }
+                }
+
+                Row {
+                    width: 100%;
+                    gap: 8dp;
+                    Button { text: "Export JSON"; background: Theme.primary; foreground: Theme.on_primary; on_tap => { on_export_backup(); } }
+                    Button { text: "Import Merge"; background: Theme.surface_variant; foreground: Theme.text_primary; on_tap => { on_import_backup(); } }
+                    Button { text: "Reset Layout"; background: Theme.danger; foreground: Theme.on_error; on_tap => { on_reset_layout(); } }
+                }
+
+                if !settings_status.is_empty() : Text {
+                    text: settings_status;
+                    font_size: 12;
+                    color: Theme.text_secondary;
+                }
+            }
+        }
+    }
+}

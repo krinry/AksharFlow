@@ -22,14 +22,18 @@ mod tests {
     };
     use crate::corpus::Corpus;
     use crate::curriculum::{
-        LessonKind, LessonProgressRecord, TOTAL_LESSONS_PER_LAYOUT, UNITS_PER_LAYOUT,
-        calculate_lesson_stars, generate_all_lessons,
+        LessonKind, TOTAL_LESSONS_PER_LAYOUT, UNITS_PER_LAYOUT, calculate_lesson_stars,
+        generate_all_lessons,
     };
+    #[cfg(feature = "sqlite")]
+    use crate::curriculum::LessonProgressRecord;
     use crate::grapheme::{GraphemeStatus, split_graphemes};
     use crate::keymap::remington_gail::RemingtonIme;
     use crate::keymap::{KeyInputEvent, LayoutKind, MappedKeyAction, PhysicalKey, qwerty};
     use crate::session::{KeySoundKind, PracticeMode, SessionEngine};
-    use crate::storage::{AppSettings, CustomPassage, SessionRecord, SqliteStorage};
+    use crate::storage::{AppSettings, MemoryStorage};
+    #[cfg(feature = "sqlite")]
+    use crate::storage::{CustomPassage, SessionRecord, SqliteStorage};
 
     fn key_evt(code: &str, shift: bool, caps_lock: bool, ts: f64) -> KeyInputEvent {
         KeyInputEvent {
@@ -304,6 +308,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "sqlite")]
     #[test]
     fn sqlite_storage_and_backup_roundtrip() {
         let mut storage = SqliteStorage::open_in_memory().unwrap();
@@ -503,6 +508,7 @@ mod tests {
         assert_eq!(r3.locked_word.as_deref(), Some("कि"));
     }
 
+    #[cfg(feature = "sqlite")]
     #[test]
     fn backup_bundle_preserves_lesson_progress_and_v1_compat() {
         let mut storage = SqliteStorage::open_in_memory().unwrap();
@@ -527,5 +533,26 @@ mod tests {
         let restored = fresh.load_lesson_progress(LayoutKind::HiInscript).unwrap();
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].stars, 4);
+    }
+
+    #[test]
+    fn memory_storage_and_backup_json_roundtrip() {
+        let mut engine = SessionEngine::with_storage(MemoryStorage::new()).unwrap();
+        engine
+            .start_jungle_lesson(LayoutKind::HiInscript, "u1-l1")
+            .unwrap();
+        let res = engine
+            .complete_jungle_lesson(Some(32.0), Some(97.0), Some(1), Some(40))
+            .unwrap();
+        assert!(res.stars_earned >= 4);
+
+        let json = engine.export_backup_json().unwrap();
+        let restored_engine =
+            SessionEngine::with_storage(MemoryStorage::from_backup_json(&json).unwrap()).unwrap();
+        let roadmap = restored_engine
+            .get_jungle_roadmap(LayoutKind::HiInscript)
+            .unwrap();
+        assert!(roadmap.total_earned_stars >= 4);
+        assert_eq!(roadmap.completed_lessons, 1);
     }
 }

@@ -4,6 +4,9 @@ members = [
   "crates/aksharflow-core",
   "src-tauri",
 ]
+exclude = [
+  "crates/aksharflow-craftui",
+]
 
 [workspace.package]
 version = "1.0.0"

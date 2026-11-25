@@ -6,7 +6,8 @@ license.workspace = true
 description = "UI-agnostic typing tutor, Hindi IME, grapheme matcher, adaptive engine, and SQLite storage for AksharFlow"
 
 [features]
-default = []
+default = ["sqlite"]
+sqlite = ["dep:rusqlite"]
 specta-types = ["dep:specta"]
 
 [dependencies]
@@ -17,5 +18,9 @@ chrono = { workspace = true }
 rand = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-normalization = { workspace = true }
-rusqlite = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 specta = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }

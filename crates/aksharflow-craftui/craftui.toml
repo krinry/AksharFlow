@@ -1,0 +1,7 @@
+[app]
+name = "AksharFlow"
+id = "org.aksharflow.craftui"
+version = "2.0.0"
+
+[ui]
+entry = "ui/aksharflow.cui"

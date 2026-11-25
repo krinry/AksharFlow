@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+#[cfg(feature = "sqlite")]
 use std::path::Path;
 
 use chrono::Utc;
+#[cfg(feature = "sqlite")]
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
@@ -107,12 +110,379 @@ pub struct BackupBundleV1 {
     pub lesson_progress: Vec<LessonProgressRecord>,
 }
 
+/// Storage backend abstraction enabling embedded SQLite on desktop and in-memory / browser
+/// snapshot persistence on WebAssembly and embedded platforms.
+pub trait StorageBackend: std::fmt::Debug + Send {
+    fn load_or_init_settings(&self) -> Result<AppSettings, AksharError>;
+    fn save_settings(&mut self, settings: &AppSettings) -> Result<AppSettings, AksharError>;
+    fn load_key_stats(&self, layout: LayoutKind) -> Result<Vec<KeyStatRecord>, AksharError>;
+    fn load_all_key_stats(&self) -> Result<Vec<KeyStatRecord>, AksharError>;
+    fn upsert_key_stats(&mut self, records: &[KeyStatRecord]) -> Result<(), AksharError>;
+    fn delete_key_stats_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError>;
+    fn record_typing_session(&mut self, session: &SessionRecord) -> Result<(), AksharError>;
+    fn list_typing_sessions(
+        &self,
+        layout: Option<LayoutKind>,
+        limit: usize,
+    ) -> Result<Vec<SessionRecord>, AksharError>;
+    fn save_custom_passage(&mut self, passage: &CustomPassage) -> Result<(), AksharError>;
+    fn list_custom_passages(&self) -> Result<Vec<CustomPassage>, AksharError>;
+    fn load_lesson_progress(
+        &self,
+        layout: LayoutKind,
+    ) -> Result<Vec<LessonProgressRecord>, AksharError>;
+    fn load_all_lesson_progress(&self) -> Result<Vec<LessonProgressRecord>, AksharError>;
+    fn upsert_lesson_progress(&mut self, rec: &LessonProgressRecord) -> Result<(), AksharError>;
+    fn delete_lesson_progress_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError>;
+    fn export_backup(&self) -> Result<BackupBundleV1, AksharError>;
+    fn import_backup(&mut self, bundle: &BackupBundleV1, replace: bool) -> Result<(), AksharError>;
+}
+
+/// Pure-Rust in-memory storage backend compatible with `wasm32-unknown-unknown` and Web `localStorage`
+/// snapshot hydration via `BackupBundleV1`.
+#[derive(Debug, Clone)]
+pub struct MemoryStorage {
+    settings: AppSettings,
+    key_stats: HashMap<(LayoutKind, String), KeyStatRecord>,
+    typing_sessions: Vec<SessionRecord>,
+    custom_passages: Vec<CustomPassage>,
+    lesson_progress: HashMap<(LayoutKind, String), LessonProgressRecord>,
+}
+
+impl Default for MemoryStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MemoryStorage {
+    pub fn new() -> Self {
+        Self {
+            settings: AppSettings::default(),
+            key_stats: HashMap::new(),
+            typing_sessions: Vec::new(),
+            custom_passages: Vec::new(),
+            lesson_progress: HashMap::new(),
+        }
+    }
+
+    pub fn from_backup_json(raw_json: &str) -> Result<Self, AksharError> {
+        let bundle: BackupBundleV1 = serde_json::from_str(raw_json)?;
+        let mut store = Self::new();
+        store.import_backup(&bundle, true)?;
+        Ok(store)
+    }
+}
+
+impl StorageBackend for MemoryStorage {
+    fn load_or_init_settings(&self) -> Result<AppSettings, AksharError> {
+        Ok(self.settings.clone())
+    }
+
+    fn save_settings(&mut self, settings: &AppSettings) -> Result<AppSettings, AksharError> {
+        let normalized = sanitize_settings(settings.clone());
+        self.settings = normalized.clone();
+        Ok(normalized)
+    }
+
+    fn load_key_stats(&self, layout: LayoutKind) -> Result<Vec<KeyStatRecord>, AksharError> {
+        let mut out: Vec<KeyStatRecord> = self
+            .key_stats
+            .values()
+            .filter(|r| r.layout == layout)
+            .cloned()
+            .collect();
+        out.sort_by_key(|r| r.unlock_order);
+        Ok(out)
+    }
+
+    fn load_all_key_stats(&self) -> Result<Vec<KeyStatRecord>, AksharError> {
+        let mut out: Vec<KeyStatRecord> = self.key_stats.values().cloned().collect();
+        out.sort_by(|a, b| {
+            a.layout
+                .to_string()
+                .cmp(&b.layout.to_string())
+                .then(a.unlock_order.cmp(&b.unlock_order))
+        });
+        Ok(out)
+    }
+
+    fn upsert_key_stats(&mut self, records: &[KeyStatRecord]) -> Result<(), AksharError> {
+        for r in records {
+            let mut normalized = r.clone();
+            normalized.confidence_score = normalized.confidence_score.clamp(0.0, 100.0);
+            normalized.weakness_weight = normalized.weakness_weight.clamp(0.0, 1.0);
+            self.key_stats
+                .insert((normalized.layout, normalized.key_id.clone()), normalized);
+        }
+        Ok(())
+    }
+
+    fn delete_key_stats_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError> {
+        self.key_stats.retain(|(l, _), _| *l != layout);
+        Ok(())
+    }
+
+    fn record_typing_session(&mut self, session: &SessionRecord) -> Result<(), AksharError> {
+        if let Some(existing) = self.typing_sessions.iter_mut().find(|s| s.id == session.id) {
+            *existing = session.clone();
+        } else {
+            self.typing_sessions.push(session.clone());
+        }
+        Ok(())
+    }
+
+    fn list_typing_sessions(
+        &self,
+        layout: Option<LayoutKind>,
+        limit: usize,
+    ) -> Result<Vec<SessionRecord>, AksharError> {
+        let mut out: Vec<SessionRecord> = self
+            .typing_sessions
+            .iter()
+            .filter(|s| layout.is_none_or(|l| s.layout == l))
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out.truncate(limit.clamp(1, 500));
+        Ok(out)
+    }
+
+    fn save_custom_passage(&mut self, passage: &CustomPassage) -> Result<(), AksharError> {
+        if let Some(existing) = self.custom_passages.iter_mut().find(|p| p.id == passage.id) {
+            *existing = passage.clone();
+        } else {
+            self.custom_passages.push(passage.clone());
+        }
+        Ok(())
+    }
+
+    fn list_custom_passages(&self) -> Result<Vec<CustomPassage>, AksharError> {
+        let mut out = self.custom_passages.clone();
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(out)
+    }
+
+    fn load_lesson_progress(
+        &self,
+        layout: LayoutKind,
+    ) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        let mut out: Vec<LessonProgressRecord> = self
+            .lesson_progress
+            .values()
+            .filter(|r| r.layout == layout)
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.lesson_id.cmp(&b.lesson_id));
+        Ok(out)
+    }
+
+    fn load_all_lesson_progress(&self) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        let mut out: Vec<LessonProgressRecord> = self.lesson_progress.values().cloned().collect();
+        out.sort_by(|a, b| {
+            a.layout
+                .to_string()
+                .cmp(&b.layout.to_string())
+                .then(a.lesson_id.cmp(&b.lesson_id))
+        });
+        Ok(out)
+    }
+
+    fn upsert_lesson_progress(&mut self, rec: &LessonProgressRecord) -> Result<(), AksharError> {
+        let mut normalized = rec.clone();
+        normalized.stars = normalized.stars.min(5);
+        normalized.best_wpm = normalized.best_wpm.max(0.0);
+        normalized.best_accuracy = normalized.best_accuracy.clamp(0.0, 100.0);
+        self.lesson_progress
+            .insert((normalized.layout, normalized.lesson_id.clone()), normalized);
+        Ok(())
+    }
+
+    fn delete_lesson_progress_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError> {
+        self.lesson_progress.retain(|(l, _), _| *l != layout);
+        Ok(())
+    }
+
+    fn export_backup(&self) -> Result<BackupBundleV1, AksharError> {
+        Ok(BackupBundleV1 {
+            schema_version: BACKUP_SCHEMA_VERSION,
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            exported_at: Utc::now().to_rfc3339(),
+            settings: self.load_or_init_settings()?,
+            key_stats: self.load_all_key_stats()?,
+            typing_sessions: self.list_typing_sessions(None, 500)?,
+            custom_passages: self.list_custom_passages()?,
+            lesson_progress: self.load_all_lesson_progress()?,
+        })
+    }
+
+    fn import_backup(&mut self, bundle: &BackupBundleV1, replace: bool) -> Result<(), AksharError> {
+        validate_backup(bundle)?;
+        self.settings = sanitize_settings(bundle.settings.clone());
+
+        if replace {
+            self.key_stats.clear();
+            self.typing_sessions.clear();
+            self.custom_passages.clear();
+            self.lesson_progress.clear();
+            self.upsert_key_stats(&bundle.key_stats)?;
+            for sess in &bundle.typing_sessions {
+                self.typing_sessions.push(sess.clone());
+            }
+            for psg in &bundle.custom_passages {
+                self.custom_passages.push(psg.clone());
+            }
+            for lp in &bundle.lesson_progress {
+                self.upsert_lesson_progress(lp)?;
+            }
+            return Ok(());
+        }
+
+        for rec in &bundle.key_stats {
+            let key = (rec.layout, rec.key_id.clone());
+            let merged = if let Some(old) = self.key_stats.get(&key) {
+                let old_total = old.hits + old.misses;
+                let new_total = rec.hits + rec.misses;
+                let use_new = new_total > old_total;
+                KeyStatRecord {
+                    unlocked: old.unlocked || rec.unlocked,
+                    hits: old.hits.max(rec.hits),
+                    misses: if use_new { rec.misses } else { old.misses },
+                    ema_latency_ms: if use_new {
+                        rec.ema_latency_ms
+                    } else {
+                        old.ema_latency_ms
+                    },
+                    confidence_score: if use_new {
+                        rec.confidence_score
+                    } else {
+                        old.confidence_score
+                    },
+                    weakness_weight: if use_new {
+                        rec.weakness_weight
+                    } else {
+                        old.weakness_weight
+                    },
+                    ..rec.clone()
+                }
+            } else {
+                rec.clone()
+            };
+            self.upsert_key_stats(&[merged])?;
+        }
+
+        for sess in &bundle.typing_sessions {
+            if !self.typing_sessions.iter().any(|s| s.id == sess.id) {
+                self.typing_sessions.push(sess.clone());
+            }
+        }
+        for psg in &bundle.custom_passages {
+            if !self.custom_passages.iter().any(|p| p.id == psg.id) {
+                self.custom_passages.push(psg.clone());
+            }
+        }
+        for lp in &bundle.lesson_progress {
+            let key = (lp.layout, lp.lesson_id.clone());
+            let merged = if let Some(old) = self.lesson_progress.get(&key) {
+                LessonProgressRecord {
+                    stars: old.stars.max(lp.stars).min(5),
+                    best_wpm: old.best_wpm.max(lp.best_wpm),
+                    best_accuracy: old.best_accuracy.max(lp.best_accuracy),
+                    completed: old.completed || lp.completed,
+                    attempts: old.attempts.max(lp.attempts),
+                    ..lp.clone()
+                }
+            } else {
+                lp.clone()
+            };
+            self.upsert_lesson_progress(&merged)?;
+        }
+        Ok(())
+    }
+}
+
 /// Embedded SQLite storage repository using WAL mode for fast offline writes.
+#[cfg(feature = "sqlite")]
 #[derive(Debug)]
 pub struct SqliteStorage {
     conn: Connection,
 }
 
+#[cfg(feature = "sqlite")]
+impl StorageBackend for SqliteStorage {
+    fn load_or_init_settings(&self) -> Result<AppSettings, AksharError> {
+        Self::load_or_init_settings(self)
+    }
+
+    fn save_settings(&mut self, settings: &AppSettings) -> Result<AppSettings, AksharError> {
+        Self::save_settings(self, settings)
+    }
+
+    fn load_key_stats(&self, layout: LayoutKind) -> Result<Vec<KeyStatRecord>, AksharError> {
+        Self::load_key_stats(self, layout)
+    }
+
+    fn load_all_key_stats(&self) -> Result<Vec<KeyStatRecord>, AksharError> {
+        Self::load_all_key_stats(self)
+    }
+
+    fn upsert_key_stats(&mut self, records: &[KeyStatRecord]) -> Result<(), AksharError> {
+        Self::upsert_key_stats(self, records)
+    }
+
+    fn delete_key_stats_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError> {
+        Self::delete_key_stats_for_layout(self, layout)
+    }
+
+    fn record_typing_session(&mut self, session: &SessionRecord) -> Result<(), AksharError> {
+        Self::record_typing_session(self, session)
+    }
+
+    fn list_typing_sessions(
+        &self,
+        layout: Option<LayoutKind>,
+        limit: usize,
+    ) -> Result<Vec<SessionRecord>, AksharError> {
+        Self::list_typing_sessions(self, layout, limit)
+    }
+
+    fn save_custom_passage(&mut self, passage: &CustomPassage) -> Result<(), AksharError> {
+        Self::save_custom_passage(self, passage)
+    }
+
+    fn list_custom_passages(&self) -> Result<Vec<CustomPassage>, AksharError> {
+        Self::list_custom_passages(self)
+    }
+
+    fn load_lesson_progress(
+        &self,
+        layout: LayoutKind,
+    ) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        Self::load_lesson_progress(self, layout)
+    }
+
+    fn load_all_lesson_progress(&self) -> Result<Vec<LessonProgressRecord>, AksharError> {
+        Self::load_all_lesson_progress(self)
+    }
+
+    fn upsert_lesson_progress(&mut self, rec: &LessonProgressRecord) -> Result<(), AksharError> {
+        Self::upsert_lesson_progress(self, rec)
+    }
+
+    fn delete_lesson_progress_for_layout(&mut self, layout: LayoutKind) -> Result<(), AksharError> {
+        Self::delete_lesson_progress_for_layout(self, layout)
+    }
+
+    fn export_backup(&self) -> Result<BackupBundleV1, AksharError> {
+        Self::export_backup(self)
+    }
+
+    fn import_backup(&mut self, bundle: &BackupBundleV1, replace: bool) -> Result<(), AksharError> {
+        Self::import_backup(self, bundle, replace)
+    }
+}
+
+#[cfg(feature = "sqlite")]
 impl SqliteStorage {
     /// Opens (or creates) an on-disk SQLite database at `path` with WAL mode and runs migrations.
     pub fn open(path: &Path) -> Result<Self, AksharError> {
@@ -709,6 +1079,7 @@ impl SqliteStorage {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn upsert_lesson_progress_tx(
     tx: &rusqlite::Transaction<'_>,
     records: &[LessonProgressRecord],
@@ -741,6 +1112,7 @@ fn upsert_lesson_progress_tx(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn map_lesson_progress_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LessonProgressRecord> {
     let layout_str: String = row.get(0)?;
     Ok(LessonProgressRecord {
@@ -755,6 +1127,7 @@ fn map_lesson_progress_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LessonPr
     })
 }
 
+#[cfg(feature = "sqlite")]
 fn upsert_key_stats_tx(
     tx: &rusqlite::Transaction<'_>,
     records: &[KeyStatRecord],
@@ -801,6 +1174,7 @@ fn upsert_key_stats_tx(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn map_key_stat_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KeyStatRecord> {
     let layout_str: String = row.get(0)?;
     Ok(KeyStatRecord {
@@ -821,6 +1195,7 @@ fn map_key_stat_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KeyStatRecord> 
     })
 }
 
+#[cfg(feature = "sqlite")]
 fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
     let layout_str: String = row.get(1)?;
     Ok(SessionRecord {
@@ -839,6 +1214,7 @@ fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
     })
 }
 
+#[cfg(feature = "sqlite")]
 fn parse_layout(s: &str) -> Option<LayoutKind> {
     match s {
         "en_qwerty" => Some(LayoutKind::EnQwerty),

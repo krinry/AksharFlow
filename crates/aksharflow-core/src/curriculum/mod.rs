@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::adaptive::required_keys_for_word;
 use crate::corpus::Corpus;
-use crate::curriculum::blueprints::{CurriculumStage, UnitBlueprint, blueprints_for_layout};
+pub use crate::curriculum::blueprints::CurriculumStage;
+use crate::curriculum::blueprints::{UnitBlueprint, blueprints_for_layout};
 use crate::keymap::LayoutKind;
 
 pub const UNITS_PER_LAYOUT: u32 = 28;
